@@ -1,0 +1,2880 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<meta name="theme-color" content="#181510"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+<meta name="apple-mobile-web-app-title" content="Tibia Market"/>
+<title>Tibia Market</title>
+<link rel="apple-touch-icon" href="/icons/icon-180.png"/>
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:#0E0D0A;overflow:hidden;}
+body{display:flex;justify-content:center;}
+#root{width:100%;max-width:430px;height:100vh;overflow:hidden;position:relative;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:#3A3020;border-radius:2px;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.5;transform:scale(1.3);}}
+@keyframes slideLeft{from{opacity:0;transform:translateX(30px);}to{opacity:1;transform:translateX(0);}}
+@keyframes slideRight{from{opacity:0;transform:translateX(-30px);}to{opacity:1;transform:translateX(0);}}
+input,textarea,select{-webkit-appearance:none;appearance:none;}
+input::placeholder,textarea::placeholder{color:#5A5030;}
+select option{background:#1E1C14;color:#E8D9A0;}
+button{cursor:pointer;}
+/* prevent iOS rubber-band bounce on body */
+body{overscroll-behavior:none;}
+/* all scrollable panels */
+.scroll-panel{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+</style>
+
+
+<script>
+/* ── Service Worker Registration ── */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        console.log('[App] Service Worker registrado:', reg.scope);
+        window._swReg = reg;
+
+        // Detectar actualizaciones
+        reg.addEventListener('updatefound', () => {
+          const newSW = reg.installing;
+          newSW.addEventListener('statechange', () => {
+            if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+              console.log('[App] Nueva versión disponible');
+              window.dispatchEvent(new CustomEvent('sw-update'));
+            }
+          });
+        });
+      })
+      .catch(err => console.warn('[App] SW no registrado:', err));
+  });
+}
+
+/* ── Push Notification helpers (globales) ── */
+window.TibiaNotif = {
+  // Solicitar permiso de notificaciones
+  async requestPermission() {
+    if (!('Notification' in window)) return 'unsupported';
+    if (Notification.permission === 'granted') return 'granted';
+    const result = await Notification.requestPermission();
+    return result;
+  },
+
+  // Enviar notificación local (via service worker para que aparezca aunque la app esté cerrada)
+  async send(title, body, url = '/') {
+    if (Notification.permission !== 'granted') return;
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SHOW_NOTIFICATION', title, body, url,
+        tag: 'tibia-market-' + Date.now(),
+      });
+    } else {
+      new Notification(title, { body, icon: '/icons/icon-192.png' });
+    }
+  },
+
+  // Simular notificación de mensaje nuevo (para demo)
+  simulateMessage(sellerName, itemName) {
+    setTimeout(() => {
+      this.send(
+        `💬 Nuevo mensaje de ${sellerName}`,
+        `Sobre: ${itemName} — "Hola, ¿el item sigue disponible?"`,
+        '/?tab=offers'
+      );
+    }, 4000);
+  },
+
+  // Simular notificación de oferta recibida
+  simulateOffer(itemName, price) {
+    setTimeout(() => {
+      this.send(
+        `💰 Nueva oferta en tu listing`,
+        `${itemName}: te ofrecen ${price.toLocaleString()} gp`,
+        '/?tab=offers'
+      );
+    }, 6000);
+  }
+};
+
+/* ── Install prompt (Android) ── */
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  window._installPrompt = e;
+  window.dispatchEvent(new CustomEvent('pwa-installable'));
+  console.log('[App] PWA lista para instalar');
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[App] PWA instalada exitosamente');
+  window._installPrompt = null;
+});
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script>window.LOGO_SRC="/icons/icon-512.png";</script>
+<script>
+window.onerror = function(msg, src, line, col, err) {
+  document.body.innerHTML = '<div style="color:#D4A830;padding:30px;font-family:monospace;background:#0E0D0A;min-height:100vh">'
+    + '<h2>⚔️ Tibia Market — Error de carga</h2>'
+    + '<p>' + msg + '</p>'
+    + '<p>Línea: ' + line + '</p>'
+    + '<small>Intenta limpiar caché del navegador</small>'
+    + '</div>';
+  return true;
+};
+</script>
+<script type="text/babel">
+/* ══════════════════════════════════════════════════
+   CONFIGURACIÓN — cambia esta URL cuando tengas
+   el backend desplegado en Railway/Render/etc.
+   Deja vacío ("") para usar modo demo sin backend.
+   ══════════════════════════════════════════════════ */
+const API_URL = "https://tibia-market-backend-production.up.railway.app";  // ej: "https://tibia-market-api.railway.app"
+
+/* ── Session helpers (localStorage) ── */
+const Session = {
+  KEY: "tm_session",
+  save(data){ try{ localStorage.setItem(Session.KEY, JSON.stringify({...data, savedAt: Date.now()})); }catch{} },
+  load(){
+    try{
+      const raw = localStorage.getItem(Session.KEY);
+      if(!raw) return null;
+      const data = JSON.parse(raw);
+      // Sesión válida por 30 días
+      if(Date.now() - data.savedAt > 30*24*60*60*1000){ Session.clear(); return null; }
+      return data;
+    }catch{ return null; }
+  },
+  clear(){ try{ localStorage.removeItem(Session.KEY); }catch{} },
+};
+
+/* ── API helper ── */
+async function api(endpoint, opts={}){
+  if(!API_URL) throw new Error("NO_BACKEND");
+  const session = Session.load();
+  const headers = { "Content-Type":"application/json", "Accept":"application/json" };
+  if(session?.token) headers["Authorization"] = `Bearer ${session.token}`;
+  const res = await fetch(API_URL + endpoint, {...opts, headers:{...headers,...(opts.headers||{})}});
+  if(!res.ok){
+    const err = await res.json().catch(()=>({error:`HTTP ${res.status}`}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+const {useState,useEffect,useRef}=React;
+const LOGO_SRC=window.LOGO_SRC;
+
+const C={
+  bg0:"#0E0D0A",bg1:"#1A1814",bg2:"#201E16",bg3:"#28261E",
+  border:"#362E1A",borderGold:"#6B5510",
+  gold:"#C9A227",goldL:"#E8C84A",goldD:"#8B6914",goldText:"#D4A830",
+  text:"#EEE0C0",textSub:"#9A8860",textMuted:"#665A38",
+  green:"#4ADE80",blue:"#60A5FA",purple:"#A78BFA",red:"#F87171",
+};
+const RC={Common:"#9CA3AF",Uncommon:"#4ADE80",Rare:"#60A5FA",Epic:"#A78BFA",Legendary:"#FBBF24"};
+
+const DEMO_ITEMS=[
+  {id:1,name:"Demon Helmet",      price:50000, server:"Antica", seller:"Valdris",voc:"Knight",  img:"⛑️",rarity:"Rare",     desc:"Full def 38, encantado. En perfectas condiciones.",   lvl:100,neg:true, views:234},
+  {id:2,name:"Blessed Sword",     price:120000,server:"Antica", seller:"Lyra",   voc:"Knight",  img:"⚔️",rarity:"Epic",     desc:"Atk 55, dos manos. La mejor espada del servidor.",    lvl:120,neg:false,views:512},
+  {id:3,name:"Spellbook of Dark", price:35000, server:"Secura", seller:"Zyreth", voc:"Mage",    img:"📖",rarity:"Uncommon", desc:"Def 28, magic+3. Ideal para Elder Druid.",            lvl:80, neg:true, views:87 },
+  {id:4,name:"Terra Mantle",      price:18000, server:"Antica", seller:"Mirkoth",voc:"Druid",   img:"🧥",rarity:"Common",   desc:"Arm 12, buen estado. Equipo de entrenamiento.",       lvl:60, neg:true, views:45 },
+  {id:5,name:"Ornamented Axe",    price:200000,server:"Refugia",seller:"Gorthax",voc:"Knight",  img:"🪓",rarity:"Legendary",desc:"Atk 62, mejor hacha del juego. SS disponibles.",      lvl:200,neg:false,views:1023},
+  {id:6,name:"Wand of Vortex",    price:8000,  server:"Secura", seller:"Eiris",  voc:"Sorcerer",img:"🪄",rarity:"Common",   desc:"Perfecto para nivel bajo, listo para usar.",          lvl:33, neg:true, views:22 },
+  {id:7,name:"Dragon Scale Mail", price:85000, server:"Antica", seller:"Pyreth", voc:"Knight",  img:"🛡️",rarity:"Epic",     desc:"Arm 14, el mejor pecho del early game.",              lvl:90, neg:true, views:156},
+  {id:8,name:"Medusa Shield",     price:42000, server:"Bona",   seller:"Khorath",voc:"Todos",   img:"🔰",rarity:"Rare",     desc:"Def 36, buen estado.",                                lvl:75, neg:true, views:63 },
+];
+const DEMO_MSGS=[
+  {id:1,user:"Valdris",char:"⚔️",msg:"Hola! Todavía tienes el Demon Helmet?",time:"10:32",mine:false},
+  {id:2,user:"Tú",    char:"🧙",msg:"Sí, disponible. ¿Cuánto ofreces?",    time:"10:33",mine:true },
+  {id:3,user:"Valdris",char:"⚔️",msg:"Ofrezco 45k, lo tomo ya",            time:"10:33",mine:false},
+  {id:4,user:"Tú",    char:"🧙",msg:"Mínimo 48k, es el precio del market", time:"10:34",mine:true },
+  {id:5,user:"Valdris",char:"⚔️",msg:"Ok trato! Thais depot 👍",           time:"10:35",mine:false},
+];
+const MY_LIST=[
+  {id:10,name:"Dragon Scale Mail",price:85000, img:"🛡️",rarity:"Epic",    views:156,offers:3},
+  {id:11,name:"Crystal Wand",     price:12000, img:"🪄",rarity:"Uncommon",views:43, offers:1},
+];
+
+/* ── SHARED ── */
+function Badge({text,color}){
+  return <span style={{background:color+"22",color,border:`1px solid ${color}55`,padding:"2px 9px",borderRadius:4,fontSize:11,fontFamily:"'Cinzel',serif",fontWeight:600,letterSpacing:0.3,whiteSpace:"nowrap"}}>{text}</span>;
+}
+function Spinner(){
+  return <span style={{display:"inline-block",width:13,height:13,border:"2px solid #1A1200",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>;
+}
+function GoldBtn({children,onClick,outline=false,small=false,full=true,disabled=false,danger=false}){
+  const [p,setP]=useState(false);
+  const bg = danger ? "linear-gradient(180deg,#C0392B,#922B21)" : outline ? "transparent" : "linear-gradient(180deg,#D4A830 0%,#B08018 50%,#9A6E10 100%)";
+  const bd = danger ? "#C0392B" : outline ? C.gold : "#8B6010";
+  const col = danger ? "#fff" : outline ? C.gold : "#1A1000";
+  return(
+    <button disabled={disabled} onClick={onClick}
+      onPointerDown={()=>setP(true)} onPointerUp={()=>setP(false)} onPointerLeave={()=>setP(false)}
+      style={{background:bg,border:`1.5px solid ${bd}`,color:col,padding:small?"7px 16px":"15px 24px",borderRadius:9,fontFamily:"'Cinzel',serif",fontSize:small?12:14,fontWeight:700,letterSpacing:1.8,cursor:disabled?"not-allowed":"pointer",width:full?"100%":"auto",transform:p?"scale(0.97)":"scale(1)",transition:"all 0.12s",boxShadow:outline||danger?"none":`0 2px 14px #C9A22744,inset 0 1px 0 #F0C84066`,opacity:disabled?0.45:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+      {children}
+    </button>
+  );
+}
+
+function InputField({label,value,onChange,onKeyDown,placeholder,type="text",icon,error}){
+  const [focused,setFocused]=useState(false);
+  return(
+    <div style={{marginBottom:error?10:14}}>
+      {label&&<div style={{fontSize:12,color:C.textSub,marginBottom:6,fontFamily:"'Cinzel',serif",letterSpacing:0.5}}>{label}</div>}
+      <div style={{position:"relative"}}>
+        {icon&&<span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,pointerEvents:"none"}}>{icon}</span>}
+        <input
+          type={type} value={value} onChange={onChange} placeholder={placeholder}
+          onKeyDown={onKeyDown} onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
+          style={{
+            width:"100%",
+            background:focused?"#1E1C13":"#181510",
+            border:`1.5px solid ${error?"#C0392B":focused?C.gold:"#3A3020"}`,
+            borderRadius:8,
+            padding:icon?"13px 16px 13px 38px":"13px 16px",
+            color:C.text,
+            fontFamily:"'Crimson Text',serif",fontSize:16,
+            outline:"none",transition:"all 0.2s",
+          }}/>
+      </div>
+      {error&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{error}</div>}
+    </div>
+  );
+}
+
+function TopBar({title,onBack,action}){
+  return(
+    <div style={{background:C.bg0,borderBottom:"1px solid #2A2418",padding:"14px 18px 13px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        {onBack&&<button onClick={onBack} style={{background:"none",border:"none",color:C.gold,fontSize:22,padding:0,lineHeight:1}}>←</button>}
+        <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:16,color:C.goldText,letterSpacing:1.2}}>{title}</span>
+      </div>
+      {action||<span/>}
+    </div>
+  );
+}
+
+function SwordIcon({active,size=22}){const c=active?C.gold:"#7A6840";return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M14.5 17.5L3 6V3h3l11.5 11.5" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M13 19l6-6 2 2-1 1h2v2h-2l-1 2-2-2-1 1-3-3" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 3l4 4" stroke={c} strokeWidth="1.8"/></svg>);}
+function ChestIcon({active,size=22}){const c=active?C.gold:"#7A6840";return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><rect x="2" y="8" width="20" height="13" rx="2" stroke={c} strokeWidth="1.8"/><path d="M2 12h20" stroke={c} strokeWidth="1.8"/><path d="M8 3h8a2 2 0 012 2v3H6V5a2 2 0 012-2z" stroke={c} strokeWidth="1.8"/><rect x="10" y="11" width="4" height="4" rx="1" fill={c}/></svg>);}
+function PersonIcon({active,size=22}){const c=active?C.gold:"#7A6840";return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke={c} strokeWidth="1.8"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={c} strokeWidth="1.8" strokeLinecap="round"/></svg>);}
+function GearIcon({active,size=22}){const c=active?C.gold:"#7A6840";return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke={c} strokeWidth="1.8"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke={c} strokeWidth="1.8" strokeLinecap="round"/></svg>);}
+
+function PlusIcon({active,size=22}){const c=active?C.gold:"#7A6840";return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke={c} strokeWidth="1.8"/><path d="M12 7v10M7 12h10" stroke={c} strokeWidth="2" strokeLinecap="round"/></svg>);}
+function BottomNav({tab,setTab}){
+  const tabs=[{id:"market",Icon:SwordIcon,label:"Mercado"},{id:"sell",Icon:PlusIcon,label:"Vender"},{id:"offers",Icon:ChestIcon,label:"Mensajes"},{id:"account",Icon:PersonIcon,label:"Mi Cuenta"}];
+  return(
+    <div style={{background:C.bg0,borderTop:"1px solid #2A2418",display:"flex",padding:"7px 0 max(10px,env(safe-area-inset-bottom))",flexShrink:0}}>
+      {tabs.map(t=>(
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"4px 0",opacity:tab===t.id?1:0.38,transition:"opacity 0.2s"}}>
+          <t.Icon active={tab===t.id} size={22}/>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:tab===t.id?C.gold:C.textMuted,letterSpacing:0.3,fontWeight:tab===t.id?700:400}}>{t.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── RUNE CIRCLE ── */
+function RuneCircle(){
+  const runes=["ᚠ","ᚢ","ᚦ","ᚨ","ᚱ","ᚲ","ᚷ","ᚹ","ᚺ","ᚾ","ᛁ","ᛃ","ᛇ","ᛈ","ᛉ","ᛊ","ᛏ","ᛒ","ᛖ","ᛗ","ᛚ","ᛜ","ᛞ","ᛟ"];
+  return(
+    <svg style={{position:"absolute",top:"46%",left:"50%",transform:"translate(-50%,-50%)",width:"min(95vw,400px)",height:"min(95vw,400px)",opacity:0.2,pointerEvents:"none"}} viewBox="0 0 400 400">
+      <circle cx="200" cy="200" r="193" stroke="#C9A227" strokeWidth="1.4" fill="none"/>
+      <circle cx="200" cy="200" r="178" stroke="#C9A227" strokeWidth="0.6" fill="none"/>
+      <circle cx="200" cy="200" r="150" stroke="#C9A227" strokeWidth="0.4" fill="none" strokeDasharray="3 7"/>
+      {Array.from({length:48},(_,i)=>{const a=i*(360/48)*Math.PI/180,R=193,r2=i%4===0?178:187;return <line key={i} x1={200+R*Math.cos(a)} y1={200+R*Math.sin(a)} x2={200+r2*Math.cos(a)} y2={200+r2*Math.sin(a)} stroke="#C9A227" strokeWidth={i%4===0?"1.3":"0.5"}/>;  })}
+      {runes.map((r,i)=>{const a=(i*(360/24)-90)*Math.PI/180,R=165;return <text key={i} x={200+R*Math.cos(a)} y={200+R*Math.sin(a)} fontSize="13" fill="#C9A227" textAnchor="middle" dominantBaseline="middle" fontFamily="serif" transform={`rotate(${i*(360/24)+90},${200+R*Math.cos(a)},${200+R*Math.sin(a)})`}>{r}</text>;})}
+      <path d="M28 28 Q55 18 48 55 Q42 78 68 72" stroke="#C9A227" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+      <path d="M372 28 Q345 18 352 55 Q358 78 332 72" stroke="#C9A227" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+      <path d="M28 372 Q55 382 48 345 Q42 322 68 328" stroke="#C9A227" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+      <path d="M372 372 Q345 382 352 345 Q358 322 332 328" stroke="#C9A227" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+/* ── AUTH SHELL (shared layout for login & register) ── */
+function AuthShell({children,compact=false}){
+  const navItems=[{Icon:SwordIcon,l:"Mercado"},{Icon:ChestIcon,l:"Mis Ofertas"},{Icon:PersonIcon,l:"Mi Cuenta"},{Icon:GearIcon,l:"Ajustes"}];
+  return(
+    <div style={{height:"100%",display:"flex",flexDirection:"column",background:"linear-gradient(175deg,#1E1A12 0%,#141210 40%,#0E0D0A 100%)",position:"relative",overflow:"hidden"}}>
+      <RuneCircle/>
+      <div style={{background:"#0C0B09",borderBottom:"1px solid #2A2418",padding:"15px 20px 14px",textAlign:"center",flexShrink:0,zIndex:2,position:"relative"}}>
+        <span style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:19,color:C.goldText,letterSpacing:2.5}}>TIBIA MARKET</span>
+      </div>
+      <div className="scroll-panel" style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",zIndex:1,position:"relative",minHeight:0}}>
+        {/* LOGO — blended with bg using screen mix-blend-mode */}
+        <div style={{position:"relative",width:"min(62vw,255px)",height:"min(62vw,255px)",flexShrink:0,marginTop:compact?8:16}}>
+          {/* radial glow behind logo so it feels embedded */}
+          <div style={{position:"absolute",inset:0,background:"radial-gradient(circle at 50% 55%, #C9A22720 0%, transparent 72%)",borderRadius:"50%"}}/>
+          <img src={LOGO_SRC} alt="Tibia Market"
+            style={{
+              width:"100%",height:"100%",objectFit:"contain",
+              /* screen blend: dark pixels of logo become transparent, light/colored parts show */
+              mixBlendMode:"screen",
+              filter:"brightness(1.05) contrast(1.1) saturate(1.05)",
+              position:"relative",zIndex:1,
+            }}/>
+        </div>
+        {children}
+      </div>
+      <div style={{background:"#0C0B09",borderTop:"1px solid #2A2418",display:"flex",padding:"7px 0 max(10px,env(safe-area-inset-bottom))",flexShrink:0,zIndex:2}}>
+        {navItems.map((t,i)=>(
+          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"4px 0",opacity:i===0?0.7:0.2}}>
+            <t.Icon active={i===0} size={22}/>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:i===0?C.gold:C.textMuted,letterSpacing:0.3}}>{t.l}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════ LOGIN ══════════════ */
+/* ── TibiaData API Real (v4) con fallback proxy ── */
+function normalizeVoc(v){
+  const m={"Elite Knight":"Knight","Knight":"Knight","Royal Paladin":"Paladin","Paladin":"Paladin","Elder Druid":"Elder Druid","Druid":"Elder Druid","Master Sorcerer":"Master Sorcerer","Sorcerer":"Master Sorcerer","Monk":"Monk","None":"Sin vocación"};
+  return m[v]||v;
+}
+
+function parseCharData(data){
+  // Soporta respuesta directa y respuesta via proxy (allorigins envuelve en .contents)
+  let json = data;
+  if(typeof data === "string") { try{ json=JSON.parse(data); }catch{ return null; } }
+  if(json?.contents) { try{ json=JSON.parse(json.contents); }catch{ return null; } }
+  const char = json?.character?.character;
+  if(!char||!char.name) return null;
+  return {
+    name:   char.name,
+    world:  char.world,
+    voc:    normalizeVoc(char.vocation),
+    level:  char.level||1,
+    guild:  char.guild?.name||null,
+    online: char.status==="online",
+  };
+}
+
+async function fetchWithTimeout(url, opts={}, ms=9000){
+  const ctrl = new AbortController();
+  const id = setTimeout(()=>ctrl.abort(), ms);
+  try{
+    const res = await fetch(url,{...opts, signal:ctrl.signal});
+    clearTimeout(id);
+    return res;
+  }catch(e){ clearTimeout(id); throw e; }
+}
+
+async function fakeAPICheck(name){
+  if(!name||!name.trim()) return null;
+  const charName = name.trim();
+
+  // Intento 1: Railway backend (más confiable, sin CORS)
+  if(API_URL){
+    try{
+      const res = await fetchWithTimeout(
+        `${API_URL}/api/auth/verify`,
+        { method:"POST", headers:{"Content-Type":"application/json","Accept":"application/json"},
+          body: JSON.stringify({characterName: charName}) }
+      );
+      if(res.status===404) return null;
+      if(res.ok){
+        const data = await res.json();
+        if(data.character) return {
+          name:   data.character.name,
+          world:  data.character.world,
+          voc:    data.character.vocation,
+          level:  data.character.level,
+          guild:  data.character.guild,
+          online: false,
+          hasAccount: data.hasAccount,
+        };
+      }
+    }catch(e){
+      console.warn("[Verify] Backend falló, intentando Netlify fn...", e.message);
+    }
+  }
+
+  // Intento 2: Netlify Function
+  try{
+    const netlifyURL = `/netlify/functions/tibia?name=${encodeURIComponent(charName)}`;
+    const res = await fetchWithTimeout(netlifyURL,{headers:{"Accept":"application/json"}});
+    if(res.status===404) return null;
+    if(res.ok){
+      const data = await res.json();
+      const parsed = parseCharData(data);
+      if(parsed!==undefined) return parsed;
+    }
+  }catch(e){
+    console.warn("[Verify] Netlify fn falló...", e.message);
+  }
+
+  // Intento 3: proxy público
+  const directURL = `https://api.tibiadata.com/v4/character/${encodeURIComponent(charName)}`;
+  const proxyURL  = `https://api.allorigins.win/get?url=${encodeURIComponent(directURL)}`;
+  try{
+    const res = await fetchWithTimeout(proxyURL,{headers:{"Accept":"application/json"}});
+    if(!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+    const data = await res.json();
+    return parseCharData(data);
+  }catch(e){
+    throw new Error("No se pudo verificar el personaje. Intenta de nuevo.");
+  }
+}
+const VOC_ICON={Knight:"⚔️",Paladin:"🏹","Elder Druid":"🌿","Master Sorcerer":"🔮",Sorcerer:"🔮",Monk:"🥷"};
+
+function CharCard({char,world,level,voc,guild,style={}}){
+  return(
+    <div style={{background:"linear-gradient(135deg,#1E1C10,#181610)",border:`1px solid ${C.borderGold}`,borderRadius:12,padding:"16px 18px",...style}}>
+      <div style={{display:"flex",alignItems:"center",gap:14}}>
+        <div style={{fontSize:42,lineHeight:1}}>{VOC_ICON[voc]||"🧙"}</div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:16,color:C.goldText}}>{char}</div>
+          <div style={{fontSize:12,color:C.textSub,marginTop:2}}>{voc} · {world}</div>
+          <div style={{fontSize:12,color:C.textMuted,marginTop:1}}>Nivel {level}{guild?` · ${guild}`:""}</div>
+        </div>
+        <Badge text="✓ Verificado" color={C.green}/>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({onLogin,onRegister}){
+  const [char,setChar]=useState("");
+  const [status,setStatus]=useState("idle"); // idle | loading | found | notfound | error | hasAccount
+  const [found,setFound]=useState(null);
+
+  async function handleEnter(){
+    if(!char.trim()||status==="loading") return;
+    setStatus("loading"); setFound(null);
+    try{
+      const result = await fakeAPICheck(char.trim());
+      if(!result){ setStatus("notfound"); return; }
+      setFound(result);
+      // If they already have an account, log in directly
+      if(result.hasAccount){
+        setStatus("hasAccount");
+        // Auto-login after short delay
+        setTimeout(()=>onLogin(result), 800);
+      } else {
+        setStatus("found"); // new user, show create account
+      }
+    }catch(e){
+      setStatus("error"); setFound({errMsg:e.message});
+    }
+  }
+
+  function reset(){ setStatus("idle"); setFound(null); setChar(""); }
+
+  const inp={width:"100%",background:"#1A1810",border:`1.5px solid ${status==="notfound"||status==="error"?C.red:status==="found"||status==="hasAccount"?C.green:C.borderGold}`,borderRadius:10,padding:"13px 16px 13px 42px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:16,outline:"none"};
+
+  return(
+    <AuthShell>
+      <div style={{width:"100%",padding:"0 24px"}}>
+
+        {/* idle / typing */}
+        {(status==="idle"||status==="loading")&&(
+          <div style={{animation:"fadeUp 0.4s ease"}}>
+            <div style={{fontSize:12,color:C.textMuted,fontFamily:"'Cinzel',serif",letterSpacing:1.5,marginBottom:8}}>NOMBRE DE TU PERSONAJE</div>
+            <div style={{position:"relative",marginBottom:16}}>
+              <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:18,pointerEvents:"none"}}>🧙</span>
+              <input
+                value={char}
+                onChange={e=>setChar(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&handleEnter()}
+                placeholder="ej. Mackonee Chikito"
+                style={inp}
+                autoFocus
+              />
+            </div>
+            <GoldBtn onClick={handleEnter} disabled={!char.trim()||status==="loading"}>
+              {status==="loading"
+                ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+                    <span style={{width:16,height:16,border:"2px solid #8B6914",borderTopColor:C.gold,borderRadius:"50%",display:"inline-block",animation:"spin 0.8s linear infinite"}}/>
+                    Verificando...
+                  </span>
+                : "🗡️ ENTRAR AL MERCADO"
+              }
+            </GoldBtn>
+            <div style={{textAlign:"center",marginTop:16,fontSize:12,color:C.textMuted,fontFamily:"'Crimson Text',serif",lineHeight:1.6}}>
+              Escribe tu nombre exacto de Tibia.<br/>
+              <span style={{color:C.textSub}}>Primera vez? Se crea tu cuenta automáticamente.</span>
+            </div>
+          </div>
+        )}
+
+        {/* Has existing account — auto logging in */}
+        {status==="hasAccount"&&found&&(
+          <div style={{animation:"fadeUp 0.35s ease",textAlign:"center"}}>
+            <div style={{fontSize:42,marginBottom:12}}>✅</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.green,marginBottom:8}}>¡Bienvenido de vuelta!</div>
+            <CharCard char={found.name} world={found.world} level={found.level} voc={found.voc} guild={found.guild} style={{marginBottom:12}}/>
+            <div style={{fontSize:12,color:C.textMuted,fontFamily:"'Crimson Text',serif"}}>Iniciando sesión...</div>
+          </div>
+        )}
+
+        {/* New user — offer to create account */}
+        {status==="found"&&found&&(
+          <div style={{animation:"fadeUp 0.35s ease"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.green,letterSpacing:1,marginBottom:10,textAlign:"center"}}>✓ PERSONAJE ENCONTRADO</div>
+            <CharCard char={found.name} world={found.world} level={found.level} voc={found.voc} guild={found.guild} style={{marginBottom:16}}/>
+            <GoldBtn onClick={()=>onLogin(found)}>
+              ⚔️ CREAR CUENTA Y ENTRAR
+            </GoldBtn>
+            <button onClick={reset} style={{background:"none",border:"none",color:C.textMuted,fontFamily:"'Crimson Text',serif",fontSize:13,marginTop:12,cursor:"pointer",width:"100%"}}>
+              ← Usar otro personaje
+            </button>
+          </div>
+        )}
+
+        {/* Not found */}
+        {(status==="notfound"||status==="error")&&(
+          <div style={{animation:"fadeUp 0.35s ease"}}>
+            <div style={{background:"#2A0808",border:"1px solid #8B1C1C",borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.red,marginBottom:4}}>
+                {status==="error"?"⚠️ Error de conexión":"✗ Personaje no encontrado"}
+              </div>
+              <div style={{fontSize:13,color:"#C09090",fontFamily:"'Crimson Text',serif",lineHeight:1.6}}>
+                {status==="error"
+                  ? (found?.errMsg||"No se pudo conectar. Intenta de nuevo.")
+                  : `"${char}" no existe en Tibia. Verifica mayúsculas y espacios.`
+                }
+              </div>
+            </div>
+            <GoldBtn onClick={reset} outline>← INTENTAR DE NUEVO</GoldBtn>
+          </div>
+        )}
+      </div>
+    </AuthShell>
+  );
+}
+
+
+function RegisterScreen({onLogin,onSuccess}){
+  const [step,setStep]=useState(1);   // 1=buscar personaje, 2=confirmar, 3=éxito
+  const [char,setChar]=useState("");
+  const [found,setFound]=useState(null);
+  const [status,setStatus]=useState("idle"); // idle|loading|found|notfound
+  const VOCS=["Knight","Paladin","Elder Druid","Master Sorcerer","Monk"];
+
+  async function verify(){
+    if(!char.trim()) return;
+    setStatus("loading"); setFound(null);
+    const result = await fakeAPICheck(char);
+    if(result){ setFound(result); setStatus("found"); }
+    else { setStatus("notfound"); }
+  }
+
+  function reset(){ setStatus("idle"); setFound(null); }
+
+  function confirm(){
+    setStep(2);
+    setTimeout(()=>setStep(3),1800);
+  }
+
+  /* STEP 3 — success */
+  if(step===3) return(
+    <AuthShell compact>
+      <div style={{width:"100%",padding:"0 28px",textAlign:"center",animation:"fadeUp 0.5s ease"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:26,color:C.goldText,letterSpacing:2,lineHeight:1,marginBottom:4}}>TIBIA<br/>MARKET</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:9,color:C.textSub,letterSpacing:4,marginBottom:20}}>EL GRAN BAZAR DE LOS JUGADORES</div>
+        <div style={{background:"linear-gradient(135deg,#1A2010,#141814)",border:`1px solid ${C.green}44`,borderRadius:14,padding:"24px 20px",marginBottom:18}}>
+          <div style={{fontSize:52,marginBottom:10}}>{VOC_ICON[found?.voc]||"🧙"}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:18,color:C.green,marginBottom:6}}>¡Bienvenido!</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.goldText,marginBottom:4}}>{found?.name}</div>
+          <div style={{fontSize:13,color:C.textSub,fontFamily:"'Crimson Text',serif",marginBottom:12}}>{found?.voc} · {found?.world} · Lvl {found?.level}</div>
+          <Badge text="✓ Personaje verificado" color={C.green}/>
+        </div>
+        <div style={{fontSize:13,color:C.textSub,lineHeight:1.7,fontFamily:"'Crimson Text',serif",marginBottom:20}}>
+          Tu cuenta está lista. Ahora puedes comprar, vender y conectar con otros jugadores.
+        </div>
+        <GoldBtn onClick={()=>onSuccess(found)}>🗡️ ENTRAR AL MERCADO</GoldBtn>
+      </div>
+    </AuthShell>
+  );
+
+  /* STEP 2 — confirming (spinner) */
+  if(step===2) return(
+    <AuthShell compact>
+      <div style={{width:"100%",padding:"0 28px",textAlign:"center"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:26,color:C.goldText,letterSpacing:2,lineHeight:1,marginBottom:20}}>TIBIA<br/>MARKET</div>
+        <div style={{padding:"30px 0"}}>
+          <div style={{marginBottom:16}}><Spinner/></div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.textSub,letterSpacing:1}}>Creando tu cuenta...</div>
+        </div>
+      </div>
+    </AuthShell>
+  );
+
+  /* STEP 1 — find char */
+  return(
+    <AuthShell compact>
+      <div style={{width:"100%",padding:"0 28px",animation:"slideLeft 0.35s ease"}}>
+        <div style={{textAlign:"center",marginBottom:16}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:"clamp(24px,7vw,30px)",color:C.goldText,letterSpacing:3,lineHeight:0.95,marginBottom:4}}>
+            TIBIA<br/>MARKET
+          </div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:"clamp(8px,2vw,10px)",color:C.textSub,letterSpacing:"clamp(2px,1vw,4px)",marginBottom:14}}>
+            CREAR CUENTA
+          </div>
+        </div>
+
+        {status!=="found"&&(
+          <div>
+            <div style={{background:"#141210",border:"1px solid #2A2418",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:13,color:C.textSub,fontFamily:"'Crimson Text',serif",lineHeight:1.7}}>
+              🧙 Tu identidad en Tibia Market <span style={{color:C.goldText}}>es tu personaje de Tibia</span>. No necesitas email ni contraseña — solo verificamos que el personaje exista.
+            </div>
+            <InputField
+              label="Nombre exacto de tu personaje"
+              value={char}
+              onChange={e=>{setChar(e.target.value);setStatus("idle");}}
+              onKeyDown={e=>e.key==="Enter"&&verify()}
+              placeholder="ej. Mackonee129"
+              icon="🧙"
+            />
+            {status==="loading"&&(
+              <div style={{textAlign:"center",padding:"14px 0",animation:"fadeIn 0.2s"}}>
+                <Spinner/>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.textSub,letterSpacing:1,marginTop:8}}>Consultando TibiaData API...</div>
+              </div>
+            )}
+            {status==="notfound"&&(
+              <div style={{background:"#2A0808",border:"1px solid #8B1C1C",borderRadius:8,padding:"12px 14px",marginBottom:12,fontSize:13,color:"#C09090",fontFamily:"'Crimson Text',serif",lineHeight:1.6}}>
+                {foundChar?.err==="connection" ? (foundChar.msg||"Error de conexión. Intenta de nuevo.") : "✗ Personaje no encontrado. Verifica el nombre exacto (mayúsculas y espacios)."}
+              </div>
+            )}
+            {status!=="loading"&&<GoldBtn onClick={verify} disabled={!char.trim()}>🔍 VERIFICAR PERSONAJE</GoldBtn>}
+          </div>
+        )}
+
+        {status==="found"&&found&&(
+          <div style={{animation:"fadeUp 0.35s ease"}}>
+            <div style={{fontSize:11,color:C.green,fontFamily:"'Cinzel',serif",letterSpacing:1,marginBottom:10}}>✓ PERSONAJE ENCONTRADO</div>
+            <CharCard char={found.name} world={found.world} level={found.level} voc={found.voc} guild={found.guild} style={{marginBottom:16}}/>
+            <div style={{background:"#141210",border:"1px solid #2A2418",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12,color:C.textSub,fontFamily:"'Crimson Text',serif",lineHeight:1.6}}>
+              ¿Eres tú? Al confirmar, crearemos tu cuenta vinculada a este personaje.
+            </div>
+            <GoldBtn onClick={confirm}>✓ SÍ, CREAR MI CUENTA</GoldBtn>
+            <div style={{height:10}}/>
+            <GoldBtn outline onClick={reset}>← OTRO PERSONAJE</GoldBtn>
+          </div>
+        )}
+
+        <div style={{display:"flex",justifyContent:"center",marginTop:14,marginBottom:8}}>
+          <button onClick={onLogin} style={{background:"none",border:"none",color:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:0.5,cursor:"pointer"}}>
+            ← YA TENGO CUENTA
+          </button>
+        </div>
+      </div>
+    </AuthShell>
+  );
+}
+
+/* ══════════════ MARKET ══════════════ */
+/* ══════════════ MARKET ══════════════ */
+function ItemCard({item,onClick}){
+  const [hov,setHov]=useState(false);
+  const col=RC[item.rarity];
+  return(
+    <div onClick={onClick}
+      onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+      onTouchStart={()=>setHov(true)} onTouchEnd={()=>setHov(false)}
+      style={{background:hov?C.bg3:C.bg1,border:`1px solid ${hov?C.borderGold:C.border}`,borderRadius:10,padding:12,cursor:"pointer",transition:"all 0.18s",transform:hov?"translateY(-1px)":"none",boxShadow:hov?"0 6px 20px #00000066":"none",animation:"fadeUp 0.3s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+        <span style={{fontSize:34,lineHeight:1}}>{item.img}</span>
+        <Badge text={item.rarity} color={col}/>
+      </div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:C.goldText,marginBottom:3,lineHeight:1.3}}>{item.name}</div>
+      <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>{item.server} · Lvl {item.lvl}+</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontFamily:"monospace",fontWeight:700,color:C.gold,fontSize:14}}>{item.price.toLocaleString()} gp</span>
+        <span style={{fontSize:10,color:C.textMuted}}>👁 {item.views}</span>
+      </div>
+      {item.neg&&<div style={{fontSize:10,color:C.green,marginTop:4}}>✓ Negociable</div>}
+    </div>
+  );
+}
+
+
+/* ── Notification Bell ── */
+function NotifBell(){
+  const [perm,setPerm]=useState(typeof Notification!=='undefined'?Notification.permission:'default');
+  const [pulse,setPulse]=useState(false);
+
+  useEffect(()=>{
+    // Pulsar si hay notificación pendiente
+    const t=setTimeout(()=>setPulse(true),3000);
+    return ()=>clearTimeout(t);
+  },[]);
+
+  async function handleClick(){
+    if(perm==='granted'){setPulse(false);return;}
+    const result=await window.TibiaNotif?.requestPermission();
+    setPerm(result||'default');
+  }
+
+  return(
+    <button onClick={handleClick} title={perm==='granted'?"Notificaciones activas":"Activar notificaciones"}
+      style={{background:"none",border:`1px solid ${perm==='granted'?C.green:C.border}`,borderRadius:8,padding:"5px 8px",cursor:"pointer",position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <span style={{fontSize:16}}>{perm==='granted'?"🔔":"🔕"}</span>
+      {pulse&&perm!=='granted'&&(
+        <span style={{position:"absolute",top:-3,right:-3,width:8,height:8,borderRadius:"50%",background:C.red,border:`1.5px solid ${C.bg0}`,animation:"pulse 1.5s infinite"}}/>
+      )}
+    </button>
+  );
+}
+function MarketScreen({onItem,onProfile,onTCMarket,onBazaar,items,loadingItems,session}){
+  const [search,setSearch]=useState("");
+  const [server,setServer]=useState("Todos");
+  const servers=["Todos","Antica","Secura","Refugia","Bona"];
+  const allItems = (items && items.length >= 0) ? items : DEMO_ITEMS;
+  const filtered=allItems.filter(i=>(server==="Todos"||i.server===server)&&i.name.toLowerCase().includes(search.toLowerCase()));
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
+      <TopBar title="TIBIA MARKET" action={
+        <button onClick={onProfile}
+          style={{background:"linear-gradient(135deg,#201A08,#141210)",border:`1px solid ${C.borderGold}`,borderRadius:22,padding:"5px 10px 5px 7px",display:"flex",alignItems:"center",gap:7,cursor:"pointer"}}>
+          <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${C.goldD},#2A1E08)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,border:`1.5px solid ${C.gold}55`,flexShrink:0}}>
+            ⚔️
+          </div>
+          <div style={{textAlign:"left"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,color:C.goldText,letterSpacing:0.3,lineHeight:1.2}}>{session?.character?.name||"Mi Personaje"}</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:8,color:C.textMuted,letterSpacing:0.3}}>{session?.character?.world||""} · Lvl {session?.character?.level||""}</div>
+          </div>
+        </button>
+      }/>
+      <div className="scroll-panel" style={{flex:1,padding:"12px 14px 8px",minHeight:0}}>
+        {/* main banner */}
+        <div style={{background:"linear-gradient(135deg,#251E0A,#1A1814 60%,#200A0A)",border:`1px solid ${C.borderGold}`,borderRadius:12,padding:"13px 18px",marginBottom:10,position:"relative",overflow:"hidden"}}>
+          <span style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:50,opacity:0.09}}>🏰</span>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:9,color:C.gold,letterSpacing:2.5,marginBottom:3}}>EL GRAN BAZAR DE TIBIA</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.text,marginBottom:2}}>Compra · Vende · Trueque</div>
+          <div style={{fontSize:12,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>{allItems.reduce((a,i)=>a+(i.views||0),0).toLocaleString()} visitas · {allItems.length} listings</div>
+        </div>
+
+        {/* Bazaar de Personajes shortcut */}
+        <div onClick={onBazaar} style={{background:"linear-gradient(135deg,#0E1A0E,#141210)",border:`1.5px solid #2A5A2A`,borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:14,cursor:"pointer",transition:"border-color 0.2s"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=C.green}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="#2A5A2A"}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:"linear-gradient(135deg,#1A2A10,#0E1A08)",border:"2px solid #2A5A2A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>
+            🏆
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:"#86EFAC",marginBottom:2}}>Bazar de Personajes</div>
+            <div style={{fontSize:12,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>
+              {DEMO_CHAR_LISTINGS.length} personajes en subasta · Link directo al Bazar oficial
+            </div>
+          </div>
+          <span style={{color:"#4ADE80",fontSize:20}}>›</span>
+        </div>
+
+        {/* TC Market shortcut */}
+        <div onClick={onTCMarket} style={{background:"linear-gradient(135deg,#1A1400,#0E0C00)",border:`1.5px solid ${C.borderGold}`,borderRadius:12,padding:"12px 16px",marginBottom:10,display:"flex",alignItems:"center",gap:14,cursor:"pointer",position:"relative",overflow:"hidden"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=C.borderGold;}}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:"linear-gradient(135deg,#2A2000,#1A1400)",border:`2px solid ${C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <TCCoin size={28}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.goldText,marginBottom:2}}>Mercado de Tibia Coins</div>
+            <div style={{fontSize:12,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>
+              {DEMO_TC_LISTINGS.length} vendedores activos · desde ${(Math.min(...DEMO_TC_LISTINGS.map(l=>l.priceUSD))*17.2).toFixed(2)} MXN/TC
+            </div>
+          </div>
+          <span style={{color:C.gold,fontSize:20}}>›</span>
+        </div>
+        <div style={{position:"relative",marginBottom:10}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMuted}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar item..."
+            style={{width:"100%",background:C.bg1,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px 10px 34px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"}}/>
+        </div>
+        <div style={{display:"flex",gap:7,marginBottom:12,overflowX:"auto",scrollbarWidth:"none",paddingBottom:2}}>
+          {servers.map(s=>(
+            <button key={s} onClick={()=>setServer(s)} style={{background:server===s?C.gold:C.bg1,border:`1px solid ${server===s?C.gold:C.border}`,color:server===s?"#1A1200":C.textSub,padding:"5px 14px",borderRadius:20,fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:server===s?700:400,flexShrink:0,transition:"all 0.15s"}}>{s}</button>
+          ))}
+        </div>
+        {loadingItems ? (
+          <div style={{gridColumn:"1/-1",textAlign:"center",padding:40}}>
+            <div style={{fontSize:32,animation:"pulse 1.5s infinite",marginBottom:12}}>⚔️</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.textMuted,letterSpacing:1}}>Cargando listings...</div>
+          </div>
+        ) : (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {filtered.map((item,i)=><ItemCard key={item.id||i} item={item} onClick={()=>onItem(item)}/>)}
+            {!filtered.length&&!loadingItems&&(
+              <div style={{gridColumn:"1/-1"}}>
+                <EmptyState icon="🏪" title="Sin listings disponibles"
+                  sub={search?"No se encontraron items con ese nombre.":"Sé el primero en publicar un item en este servidor."}/>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailScreen({item,onBack,onChat}){
+  const [saved,setSaved]=useState(false);
+  const col=RC[item.rarity];
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="Detalle" onBack={onBack} action={<button onClick={()=>setSaved(!saved)} style={{background:"none",border:"none",fontSize:22,padding:0,lineHeight:1}}>{saved?"❤️":"🤍"}</button>}/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+        <div style={{background:`radial-gradient(circle at 50% 60%,${col}18 0%,${C.bg1} 70%)`,border:`1px solid ${col}44`,borderRadius:14,padding:"28px 20px",textAlign:"center",marginBottom:12}}>
+          <div style={{fontSize:72,marginBottom:12,filter:`drop-shadow(0 0 20px ${col}88)`}}>{item.img}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.goldText,marginBottom:8}}>{item.name}</div>
+          <Badge text={item.rarity} color={col}/>
+        </div>
+        <div style={{background:C.bg1,border:`1px solid ${C.borderGold}`,borderRadius:10,padding:"14px 16px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:4}}>PRECIO</div>
+              <div style={{fontFamily:"monospace",fontSize:24,fontWeight:700,color:C.gold}}>{item.price.toLocaleString()} <span style={{fontSize:13}}>gp</span></div>
+              {item.neg&&<div style={{fontSize:11,color:C.green,marginTop:3}}>✓ Negociable</div>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:12,color:C.textMuted}}>👁 {item.views} vistas</div>
+              <div style={{fontSize:12,color:C.textMuted,marginTop:4}}>Lvl {item.lvl}+</div>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+          {[{l:"Servidor",v:item.server,i:"🌍"},{l:"Vocación",v:item.voc,i:"🧝"},{l:"Vendedor",v:item.seller,i:"👤"}].map(s=>(
+            <div key={s.l} style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 6px",textAlign:"center"}}>
+              <div style={{fontSize:16,marginBottom:4}}>{s.i}</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:8,color:C.textMuted,letterSpacing:0.5}}>{s.l}</div>
+              <div style={{fontSize:11,color:C.text,fontWeight:600,marginTop:2}}>{s.v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:8}}>DESCRIPCIÓN</div>
+          <div style={{fontSize:15,lineHeight:1.7,color:C.text,fontFamily:"'Crimson Text',serif"}}>{item.desc}</div>
+        </div>
+        <GoldBtn onClick={()=>{onChat();}}>💬 Contactar a {item.seller}</GoldBtn>
+        <div style={{height:10}}/>
+        <GoldBtn outline>📤 Compartir</GoldBtn>
+      </div>
+    </div>
+  );
+}
+
+function ChatScreen({item,onBack,inbox=false,conversations}){
+  const [input,setInput]=useState("");
+  const [msgs,setMsgs]=useState(DEMO_MSGS||[]);
+  const bottomRef=useRef(null);
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"})},[msgs]);
+  function send(){if(!input.trim())return;setMsgs(m=>[...m,{id:Date.now(),user:"Tú",char:"🧙",msg:input,time:"ahora",mine:true}]);setInput("");}
+  if(inbox) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="MENSAJES"/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+        {[{name:"Valdris",char:"⚔️",preview:"Ok trato! Thais depot 👍",time:"10:35",unread:1,it:"Demon Helmet"},{name:"Eiris",char:"🪄",preview:"Tienes el Crystal Wand?",time:"Ayer",unread:0,it:"Crystal Wand"}].map((c,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:12,background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,padding:14,marginBottom:10,cursor:"pointer"}}>
+            <span style={{fontSize:32}}>{c.char}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:13,color:C.text}}>{c.name}</span>
+                <span style={{fontSize:11,color:C.textMuted}}>{c.time}</span>
+              </div>
+              <div style={{fontSize:11,color:C.gold,fontFamily:"'Cinzel',serif",marginBottom:2}}>{c.it}</div>
+              <div style={{fontSize:13,color:C.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontFamily:"'Crimson Text',serif"}}>{c.preview}</div>
+            </div>
+            {c.unread>0&&<div style={{background:C.gold,color:"#1A1200",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700}}>{c.unread}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title={`💬 ${item?.seller||"Chat"}`} onBack={onBack}/>
+      {item&&<div style={{background:C.bg1,borderBottom:`1px solid ${C.border}`,padding:"8px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <span style={{fontSize:24}}>{item.img}</span>
+        <div><div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.goldText}}>{item.name}</div><div style={{fontSize:12,color:C.gold,fontFamily:"monospace"}}>{item.price.toLocaleString()} gp</div></div>
+      </div>}
+      <div className="scroll-panel" style={{flex:1,padding:"14px 14px 0",minHeight:0}}>
+        {msgs.map(m=>(
+          <div key={m.id} style={{display:"flex",flexDirection:m.mine?"row-reverse":"row",gap:8,marginBottom:12,alignItems:"flex-end"}}>
+            {!m.mine&&<span style={{fontSize:24,flexShrink:0}}>{m.char}</span>}
+            <div style={{background:m.mine?`linear-gradient(135deg,${C.gold},${C.goldD})`:"#1E1C14",color:m.mine?"#1A1000":C.text,border:`1px solid ${m.mine?C.goldD:C.border}`,borderRadius:m.mine?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"10px 14px",maxWidth:"72%",fontFamily:"'Crimson Text',serif",fontSize:15,lineHeight:1.5}}>
+              {m.msg}<div style={{fontSize:10,marginTop:4,opacity:0.6,textAlign:m.mine?"left":"right"}}>{m.time}</div>
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef}/>
+      </div>
+      <div style={{padding:"10px 14px",background:C.bg0,borderTop:`1px solid ${C.border}`,display:"flex",gap:10,flexShrink:0}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Escribe un mensaje..."
+          style={{flex:1,background:C.bg1,border:`1px solid ${C.border}`,borderRadius:22,padding:"10px 16px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"}}/>
+        <button onClick={send} style={{background:`linear-gradient(135deg,${C.gold},${C.goldD})`,border:"none",borderRadius:22,padding:"10px 18px",color:"#1A1000",fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700}}>➤</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ TIBIA ITEM DATABASE ═══ */
+const TIBIA_ITEMS=[
+  /* ── HELMETS ── */
+  {name:"Demon Helmet",       cat:"Helmet",  slot:"Head",   arm:8,  atk:null,def:null,lvl:60,  voc:["Knight","Paladin"],           wiki:"Demon_Helmet"},
+  {name:"Royal Helmet",       cat:"Helmet",  slot:"Head",   arm:10, atk:null,def:null,lvl:75,  voc:["Knight","Paladin"],           wiki:"Royal_Helmet"},
+  {name:"Crown Helmet",       cat:"Helmet",  slot:"Head",   arm:10, atk:null,def:null,lvl:0,   voc:["Knight","Paladin"],           wiki:"Crown_Helmet"},
+  {name:"Golden Helmet",      cat:"Helmet",  slot:"Head",   arm:12, atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Golden_Helmet"},
+  {name:"Barbarian Helmet",   cat:"Helmet",  slot:"Head",   arm:8,  atk:null,def:null,lvl:50,  voc:["Knight"],                    wiki:"Barbarian_Helmet"},
+  {name:"Spiritthorn Helmet", cat:"Helmet",  slot:"Head",   arm:12, atk:null,def:null,lvl:400, voc:["Knight"],                    wiki:"Spiritthorn_Helmet"},
+  {name:"Falcon Coif",        cat:"Helmet",  slot:"Head",   arm:11, atk:null,def:null,lvl:270, voc:["Knight"],                    wiki:"Falcon_Coif"},
+  {name:"Gnome Helmet",       cat:"Helmet",  slot:"Head",   arm:10, atk:null,def:null,lvl:200, voc:["Knight"],                    wiki:"Gnome_Helmet"},
+  {name:"Alicorn Headguard",  cat:"Helmet",  slot:"Head",   arm:11, atk:null,def:null,lvl:400, voc:["Paladin"],                   wiki:"Alicorn_Headguard"},
+  {name:"Falcon Circlet",     cat:"Helmet",  slot:"Head",   arm:13, atk:null,def:null,lvl:270, voc:["Sorcerer","Druid"],          wiki:"Falcon_Circlet"},
+  {name:"Arcanomancer Regalia",cat:"Helmet", slot:"Head",   arm:9,  atk:null,def:null,lvl:400, voc:["Sorcerer"],                  wiki:"Arcanomancer_Regalia"},
+  {name:"Arboreal Crown",     cat:"Helmet",  slot:"Head",   arm:9,  atk:null,def:null,lvl:400, voc:["Druid"],                     wiki:"Arboreal_Crown"},
+  {name:"Batwing Hat",        cat:"Helmet",  slot:"Head",   arm:3,  atk:null,def:null,lvl:50,  voc:["Sorcerer","Druid"],          wiki:"Batwing_Hat"},
+  {name:"Ethereal Coned Hat", cat:"Helmet",  slot:"Head",   arm:7,  atk:null,def:null,lvl:400, voc:["Monk"],                      wiki:"Ethereal_Coned_Hat"},
+  {name:"Chain Helmet",       cat:"Helmet",  slot:"Head",   arm:2,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Chain_Helmet"},
+  {name:"Brass Helmet",       cat:"Helmet",  slot:"Head",   arm:3,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Brass_Helmet"},
+  /* ── ARMORS ── */
+  {name:"Dragon Scale Mail",  cat:"Armor",   slot:"Body",   arm:14, atk:null,def:null,lvl:60,  voc:["Knight"],                    wiki:"Dragon_Scale_Mail"},
+  {name:"Golden Armor",       cat:"Armor",   slot:"Body",   arm:15, atk:null,def:null,lvl:60,  voc:["Knight","Paladin"],           wiki:"Golden_Armor"},
+  {name:"Demon Armor",        cat:"Armor",   slot:"Body",   arm:15, atk:null,def:null,lvl:60,  voc:["Knight","Paladin"],           wiki:"Demon_Armor"},
+  {name:"Spiritthorn Armor",  cat:"Armor",   slot:"Body",   arm:18, atk:null,def:null,lvl:400, voc:["Knight"],                    wiki:"Spiritthorn_Armor"},
+  {name:"Falcon Plate",       cat:"Armor",   slot:"Body",   arm:17, atk:null,def:null,lvl:270, voc:["Knight"],                    wiki:"Falcon_Plate"},
+  {name:"Prismatic Armor",    cat:"Armor",   slot:"Body",   arm:15, atk:null,def:null,lvl:120, voc:["Knight"],                    wiki:"Prismatic_Armor"},
+  {name:"Royal Dragonscale",  cat:"Armor",   slot:"Body",   arm:15, atk:null,def:null,lvl:60,  voc:["Knight","Paladin"],           wiki:"Royal_Dragonscale"},
+  {name:"Soulshell",          cat:"Armor",   slot:"Body",   arm:18, atk:null,def:null,lvl:400, voc:["Paladin"],                   wiki:"Soulshell"},
+  {name:"Falcon Raiment",     cat:"Armor",   slot:"Body",   arm:14, atk:null,def:null,lvl:270, voc:["Paladin"],                   wiki:"Falcon_Raiment"},
+  {name:"Elven Mail",         cat:"Armor",   slot:"Body",   arm:12, atk:null,def:null,lvl:40,  voc:["All"],                       wiki:"Elven_Mail"},
+  {name:"Falcon Tabard",      cat:"Armor",   slot:"Body",   arm:14, atk:null,def:null,lvl:270, voc:["Sorcerer","Druid"],          wiki:"Falcon_Tabard"},
+  {name:"Falcon Wand",        cat:"Armor",   slot:"Body",   arm:15, atk:null,def:null,lvl:400, voc:["Sorcerer"],                  wiki:"Arcanomancer_Vestments"},
+  {name:"Arboreal Robe",      cat:"Armor",   slot:"Body",   arm:15, atk:null,def:null,lvl:400, voc:["Druid"],                     wiki:"Arboreal_Robe"},
+  {name:"Chain Armor",        cat:"Armor",   slot:"Body",   arm:7,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Chain_Armor"},
+  {name:"Brass Armor",        cat:"Armor",   slot:"Body",   arm:8,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Brass_Armor"},
+  /* ── SWORDS ── */
+  {name:"Demon Sword",        cat:"Sword",   slot:"Weapon", arm:null,atk:60, def:19, lvl:60,  voc:["Knight"],                    wiki:"Demon_Sword"},
+  {name:"Blessed Sword",      cat:"Sword",   slot:"Weapon", arm:null,atk:55, def:22, lvl:75,  voc:["Knight"],                    wiki:"Blessed_Sword"},
+  {name:"Emerald Sword",      cat:"Sword",   slot:"Weapon", arm:null,atk:51, def:19, lvl:60,  voc:["Knight"],                    wiki:"Emerald_Sword"},
+  {name:"Crystalline Sword",  cat:"Sword",   slot:"Weapon", arm:null,atk:50, def:20, lvl:60,  voc:["Knight"],                    wiki:"Crystalline_Sword"},
+  {name:"Falcon Longsword",   cat:"Sword",   slot:"Weapon", arm:null,atk:56, def:38, lvl:270, voc:["Knight"],                    wiki:"Falcon_Longsword"},
+  {name:"Gnome Sword",        cat:"Sword",   slot:"Weapon", arm:null,atk:56, def:35, lvl:200, voc:["Knight"],                    wiki:"Gnome_Sword"},
+  {name:"The Avenger",        cat:"Sword",   slot:"Weapon", arm:null,atk:64, def:22, lvl:100, voc:["Knight"],                    wiki:"The_Avenger"},
+  {name:"Souleater",          cat:"Sword",   slot:"Weapon", arm:null,atk:60, def:35, lvl:200, voc:["Knight"],                    wiki:"Souleater"},
+  {name:"Carlin Sword",       cat:"Sword",   slot:"Weapon", arm:null,atk:15, def:13, lvl:0,   voc:["All"],                       wiki:"Carlin_Sword"},
+  /* ── AXES ── */
+  {name:"Ornamented Axe",     cat:"Axe",     slot:"Weapon", arm:null,atk:62, def:18, lvl:60,  voc:["Knight"],                    wiki:"Ornamented_Axe"},
+  {name:"Stonecutter Axe",    cat:"Axe",     slot:"Weapon", arm:null,atk:60, def:28, lvl:55,  voc:["Knight"],                    wiki:"Stonecutter_Axe"},
+  {name:"Falcon Axe",         cat:"Axe",     slot:"Weapon", arm:null,atk:59, def:37, lvl:270, voc:["Knight"],                    wiki:"Falcon_Axe"},
+  {name:"Gnome Helmet",       cat:"Axe",     slot:"Weapon", arm:null,atk:58, def:36, lvl:200, voc:["Knight"],                    wiki:"Gnome_Axe"},
+  {name:"Dreaded Cleaver",    cat:"Axe",     slot:"Weapon", arm:null,atk:53, def:21, lvl:60,  voc:["Knight"],                    wiki:"Dreaded_Cleaver"},
+  /* ── CLUBS ── */
+  {name:"Dark Trinity Mace",  cat:"Club",    slot:"Weapon", arm:null,atk:52, def:38, lvl:55,  voc:["Knight"],                    wiki:"Dark_Trinity_Mace"},
+  {name:"Falcon Mace",        cat:"Club",    slot:"Weapon", arm:null,atk:57, def:37, lvl:270, voc:["Knight"],                    wiki:"Falcon_Mace"},
+  {name:"Gnome Hammer",       cat:"Club",    slot:"Weapon", arm:null,atk:56, def:35, lvl:200, voc:["Knight"],                    wiki:"Gnome_Hammer"},
+  {name:"Mortal Mace",        cat:"Club",    slot:"Weapon", arm:null,atk:61, def:20, lvl:60,  voc:["Knight"],                    wiki:"Mortal_Mace"},
+  {name:"Ravager",            cat:"Club",    slot:"Weapon", arm:null,atk:65, def:22, lvl:100, voc:["Knight"],                    wiki:"Ravager"},
+  /* ── DISTANCE ── */
+  {name:"Arbalest",           cat:"Distance",slot:"Weapon", arm:null,atk:90, def:0,  lvl:75,  voc:["Paladin"],                   wiki:"Arbalest"},
+  {name:"Falcon Bow",         cat:"Distance",slot:"Weapon", arm:null,atk:90, def:0,  lvl:270, voc:["Paladin"],                   wiki:"Falcon_Bow"},
+  {name:"Gnome Bow",          cat:"Distance",slot:"Weapon", arm:null,atk:90, def:0,  lvl:200, voc:["Paladin"],                   wiki:"Gnome_Bow"},
+  {name:"Composite Hornbow",  cat:"Distance",slot:"Weapon", arm:null,atk:90, def:0,  lvl:75,  voc:["Paladin"],                   wiki:"Composite_Hornbow"},
+  {name:"Royal Crossbow",     cat:"Distance",slot:"Weapon", arm:null,atk:90, def:0,  lvl:130, voc:["Paladin"],                   wiki:"Royal_Crossbow"},
+  /* ── WANDS ── */
+  {name:"Wand of Vortex",     cat:"Wand",    slot:"Weapon", arm:null,atk:0,  def:0,  lvl:33,  voc:["Sorcerer"],                  wiki:"Wand_of_Vortex"},
+  {name:"Wand of Inferno",    cat:"Wand",    slot:"Weapon", arm:null,atk:0,  def:0,  lvl:61,  voc:["Sorcerer"],                  wiki:"Wand_of_Inferno"},
+  {name:"Wand of Cosmic Energy",cat:"Wand",  slot:"Weapon", arm:null,atk:0,  def:0,  lvl:130, voc:["Sorcerer"],                  wiki:"Wand_of_Cosmic_Energy"},
+  {name:"Falcon Wand",        cat:"Wand",    slot:"Weapon", arm:null,atk:0,  def:0,  lvl:270, voc:["Sorcerer"],                  wiki:"Falcon_Wand"},
+  {name:"Gnome Wand",         cat:"Wand",    slot:"Weapon", arm:null,atk:0,  def:0,  lvl:200, voc:["Sorcerer"],                  wiki:"Gnome_Wand"},
+  {name:"Hellforged Axe",     cat:"Wand",    slot:"Weapon", arm:null,atk:0,  def:0,  lvl:270, voc:["Sorcerer"],                  wiki:"Sorc_Falcon_Wand"},
+  /* ── RODS ── */
+  {name:"Snakebite Rod",      cat:"Rod",     slot:"Weapon", arm:null,atk:0,  def:0,  lvl:33,  voc:["Druid"],                     wiki:"Snakebite_Rod"},
+  {name:"Springsprout Rod",   cat:"Rod",     slot:"Weapon", arm:null,atk:0,  def:0,  lvl:55,  voc:["Druid"],                     wiki:"Springsprout_Rod"},
+  {name:"Hailstorm Rod",      cat:"Rod",     slot:"Weapon", arm:null,atk:0,  def:0,  lvl:75,  voc:["Druid"],                     wiki:"Hailstorm_Rod"},
+  {name:"Underworld Rod",     cat:"Rod",     slot:"Weapon", arm:null,atk:0,  def:0,  lvl:100, voc:["Druid"],                     wiki:"Underworld_Rod"},
+  {name:"Falcon Rod",         cat:"Rod",     slot:"Weapon", arm:null,atk:0,  def:0,  lvl:270, voc:["Druid"],                     wiki:"Falcon_Rod"},
+  {name:"Gnome Rod",          cat:"Rod",     slot:"Weapon", arm:null,atk:0,  def:0,  lvl:200, voc:["Druid"],                     wiki:"Gnome_Rod"},
+  /* ── SHIELDS ── */
+  {name:"Blessed Shield",     cat:"Shield",  slot:"Shield", arm:null,atk:null,def:42,lvl:75,  voc:["Knight","Paladin"],           wiki:"Blessed_Shield"},
+  {name:"Demon Shield",       cat:"Shield",  slot:"Shield", arm:null,atk:null,def:40,lvl:75,  voc:["Knight","Paladin"],           wiki:"Demon_Shield"},
+  {name:"Medusa Shield",      cat:"Shield",  slot:"Shield", arm:null,atk:null,def:36,lvl:75,  voc:["Knight","Paladin"],           wiki:"Medusa_Shield"},
+  {name:"Ornate Shield",      cat:"Shield",  slot:"Shield", arm:null,atk:null,def:38,lvl:100, voc:["Knight"],                    wiki:"Ornate_Shield"},
+  {name:"Gnome Shield",       cat:"Shield",  slot:"Shield", arm:null,atk:null,def:46,lvl:200, voc:["Knight","Paladin"],           wiki:"Gnome_Shield"},
+  {name:"Falcon Shield",      cat:"Shield",  slot:"Shield", arm:null,atk:null,def:48,lvl:270, voc:["Knight","Paladin"],           wiki:"Falcon_Shield"},
+  {name:"Spiritthorn Shield", cat:"Shield",  slot:"Shield", arm:null,atk:null,def:52,lvl:400, voc:["Knight"],                    wiki:"Spiritthorn_Shield"},
+  {name:"Ectoplasmic Shield", cat:"Shield",  slot:"Shield", arm:null,atk:null,def:44,lvl:180, voc:["Knight","Paladin"],           wiki:"Ectoplasmic_Shield"},
+  {name:"Dragon Shield",      cat:"Shield",  slot:"Shield", arm:null,atk:null,def:29,lvl:40,  voc:["All"],                       wiki:"Dragon_Shield"},
+  /* ── LEGS ── */
+  {name:"Titan Legs",         cat:"Legs",    slot:"Legs",   arm:8,  atk:null,def:null,lvl:30,  voc:["Knight"],                    wiki:"Titan_Legs"},
+  {name:"Crystal Legs",       cat:"Legs",    slot:"Legs",   arm:10, atk:null,def:null,lvl:50,  voc:["Knight","Paladin"],           wiki:"Crystal_Legs"},
+  {name:"Hive Legs",          cat:"Legs",    slot:"Legs",   arm:10, atk:null,def:null,lvl:60,  voc:["Knight","Paladin"],           wiki:"Hive_Legs"},
+  {name:"Falcon Greaves",     cat:"Legs",    slot:"Legs",   arm:12, atk:null,def:null,lvl:270, voc:["Knight"],                    wiki:"Falcon_Greaves"},
+  {name:"Sanguine Legs",      cat:"Legs",    slot:"Legs",   arm:12, atk:null,def:null,lvl:300, voc:["All"],                       wiki:"Sanguine_Legs"},
+  {name:"Ornate Legs",        cat:"Legs",    slot:"Legs",   arm:11, atk:null,def:null,lvl:160, voc:["Knight","Paladin"],           wiki:"Ornate_Legs"},
+  {name:"Orcish Legs",        cat:"Legs",    slot:"Legs",   arm:8,  atk:null,def:null,lvl:40,  voc:["All"],                       wiki:"Orcish_Legs"},
+  {name:"Studded Legs",       cat:"Legs",    slot:"Legs",   arm:5,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Studded_Legs"},
+  /* ── BOOTS ── */
+  {name:"Soft Boots",         cat:"Boots",   slot:"Feet",   arm:1,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Soft_Boots"},
+  {name:"Boots of Haste",     cat:"Boots",   slot:"Feet",   arm:0,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Boots_of_Haste"},
+  {name:"Steel Boots",        cat:"Boots",   slot:"Feet",   arm:2,  atk:null,def:null,lvl:60,  voc:["Knight"],                    wiki:"Steel_Boots"},
+  {name:"Guardian Boots",     cat:"Boots",   slot:"Feet",   arm:3,  atk:null,def:null,lvl:50,  voc:["Knight"],                    wiki:"Guardian_Boots"},
+  {name:"Depth Calcei",       cat:"Boots",   slot:"Feet",   arm:5,  atk:null,def:null,lvl:150, voc:["All"],                       wiki:"Depth_Calcei"},
+  {name:"Pair of Soulwalkers",cat:"Boots",   slot:"Feet",   arm:6,  atk:null,def:null,lvl:400, voc:["All"],                       wiki:"Pair_of_Soulwalkers"},
+  {name:"Falcon Boots",       cat:"Boots",   slot:"Feet",   arm:5,  atk:null,def:null,lvl:270, voc:["All"],                       wiki:"Falcon_Boots"},
+  /* ── AMULETS ── */
+  {name:"Stone Skin Amulet",  cat:"Amulet",  slot:"Neck",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Stone_Skin_Amulet"},
+  {name:"Garlic Necklace",    cat:"Amulet",  slot:"Neck",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Garlic_Necklace"},
+  {name:"Protection Amulet",  cat:"Amulet",  slot:"Neck",   arm:4,  atk:null,def:null,lvl:0,   voc:["All"],                       wiki:"Protection_Amulet"},
+  {name:"Falcon Escutcheon",  cat:"Amulet",  slot:"Neck",   arm:null,atk:null,def:null,lvl:270,voc:["All"],                       wiki:"Falcon_Escutcheon"},
+  {name:"Shockwave Amulet",   cat:"Amulet",  slot:"Neck",   arm:null,atk:null,def:null,lvl:200,voc:["All"],                       wiki:"Shockwave_Amulet"},
+  /* ── RINGS ── */
+  {name:"Ring of Healing",    cat:"Ring",    slot:"Ring",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Ring_of_Healing"},
+  {name:"Time Ring",          cat:"Ring",    slot:"Ring",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Time_Ring"},
+  {name:"Prismatic Ring",     cat:"Ring",    slot:"Ring",   arm:null,atk:null,def:null,lvl:200,voc:["All"],                       wiki:"Prismatic_Ring"},
+  {name:"Might Ring",         cat:"Ring",    slot:"Ring",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Might_Ring"},
+  {name:"Energy Ring",        cat:"Ring",    slot:"Ring",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Energy_Ring"},
+  /* ── CONSUMABLES ── */
+  {name:"Small Sapphire",     cat:"Gem",     slot:"Misc",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Small_Sapphire"},
+  {name:"Small Diamond",      cat:"Gem",     slot:"Misc",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Small_Diamond"},
+  {name:"Small Emerald",      cat:"Gem",     slot:"Misc",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Small_Emerald"},
+  {name:"Small Amethyst",     cat:"Gem",     slot:"Misc",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Small_Amethyst"},
+  {name:"Small Ruby",         cat:"Gem",     slot:"Misc",   arm:null,atk:null,def:null,lvl:0,  voc:["All"],                       wiki:"Small_Ruby"},
+  {name:"Spellbook of Dark Mysteries",cat:"Spellbook",slot:"Shield",arm:null,atk:null,def:28,lvl:80,voc:["Sorcerer","Druid"],    wiki:"Spellbook_of_Dark_Mysteries"},
+  {name:"Falcon Crest",       cat:"Spellbook",slot:"Shield",arm:null,atk:null,def:38,lvl:270, voc:["Sorcerer","Druid"],          wiki:"Falcon_Crest"},
+  {name:"Gnome Shield",       cat:"Spellbook",slot:"Shield",arm:null,atk:null,def:36,lvl:200, voc:["Sorcerer","Druid"],          wiki:"Gnome_Shield"},
+];
+const ITEM_CATS=["Todos","Helmet","Armor","Sword","Axe","Club","Distance","Wand","Rod","Shield","Legs","Boots","Amulet","Ring","Gem","Spellbook"];
+const CAT_ICON={Helmet:"⛑️",Armor:"🛡️",Sword:"⚔️",Axe:"🪓",Club:"🏏",Distance:"🏹",Wand:"🪄",Rod:"🌿",Shield:"🔰",Legs:"👖",Boots:"👟",Amulet:"📿",Ring:"💍",Gem:"💎",Spellbook:"📖",Todos:"🗡️"};
+
+
+/* ── TIBIA PIXEL-ART SPRITES (SVG, no external deps) ── */
+function TibiaSprite({cat,size=40,bg=true}){
+  const px=(x,y,c,s=2)=><rect key={`${x}${y}`} x={x*s} y={y*s} width={s} height={s} fill={c}/>;
+
+  /* pixel map per category — drawn on 16x16 grid, scaled 2x = 32x32 */
+  const sprites={
+    "Espadas": (s=2)=>[
+      /* silver blade */
+      px(7,0,"#E0E8F0",s),px(8,0,"#C8D4DC",s),
+      px(6,1,"#D0D8E0",s),px(7,1,"#F0F8FF",s),px(8,1,"#E0E8F0",s),px(9,1,"#B0B8C0",s),
+      px(5,2,"#C8D0D8",s),px(6,2,"#E8F0F8",s),px(7,2,"#F8FFFF",s),px(8,2,"#E0E8F0",s),px(9,2,"#C0C8D0",s),px(10,2,"#A0A8B0",s),
+      px(4,3,"#B8C0C8",s),px(5,3,"#D8E0E8",s),px(6,3,"#F0F8FF",s),px(7,3,"#E8F0F8",s),px(8,3,"#D0D8E0",s),px(9,3,"#B8C0C8",s),px(10,3,"#A0A8B0",s),
+      px(3,4,"#B0B8C0",s),px(4,4,"#C8D0D8",s),px(5,4,"#E0E8F0",s),px(6,4,"#E8F0F8",s),px(7,4,"#D8E0E8",s),px(8,4,"#C0C8D0",s),
+      px(2,5,"#A8B0B8",s),px(3,5,"#C0C8D0",s),px(4,5,"#D8E0E8",s),px(5,5,"#D0D8E0",s),px(6,5,"#B8C0C8",s),
+      px(1,6,"#A0A8B0",s),px(2,6,"#B8C0C8",s),px(3,6,"#C8D0D8",s),px(4,6,"#B0B8C0",s),
+      px(0,7,"#989FA8",s),px(1,7,"#B0B8C0",s),px(2,7,"#A0A8B0",s),
+      /* guard - gold */
+      px(6,6,"#C9A020",s),px(7,6,"#E0B830",s),px(8,6,"#C9A020",s),
+      px(5,7,"#B89010",s),px(6,7,"#D4A820",s),px(7,7,"#E8C030",s),px(8,7,"#D4A820",s),px(9,7,"#B89010",s),
+      px(6,8,"#C9A020",s),px(7,8,"#C9A020",s),px(8,8,"#C9A020",s),
+      /* handle - brown */
+      px(7,9,"#8B4513",s),px(8,9,"#6B3000",s),
+      px(7,10,"#7B3A10",s),px(8,10,"#6B3000",s),
+      px(7,11,"#8B4513",s),px(8,11,"#6B3000",s),
+      px(7,12,"#C9A020",s),px(8,12,"#A07010",s),
+    ],
+    "Hachas": (s=2)=>[
+      px(4,0,"#A0A8B0",s),px(5,0,"#C0C8D0",s),px(6,0,"#D8E0E8",s),
+      px(3,1,"#98A0A8",s),px(4,1,"#B8C0C8",s),px(5,1,"#D8E0E8",s),px(6,1,"#E8F0F8",s),px(7,1,"#C8D0D8",s),
+      px(2,2,"#909098",s),px(3,2,"#B0B8C0",s),px(4,2,"#D0D8E0",s),px(5,2,"#E8F0F8",s),px(6,2,"#F0F8FF",s),px(7,2,"#D8E0E8",s),px(8,2,"#B0B8C0",s),
+      px(2,3,"#A0A8B0",s),px(3,3,"#C8D0D8",s),px(4,3,"#E0E8F0",s),px(5,3,"#E8F0F8",s),px(6,3,"#E0E8F0",s),px(7,3,"#C0C8D0",s),px(8,3,"#A0A8B0",s),
+      px(2,4,"#989FA8",s),px(3,4,"#B8C0C8",s),px(4,4,"#D0D8E0",s),px(5,4,"#D8E0E8",s),px(6,4,"#C0C8D0",s),px(7,4,"#A0A8B0",s),
+      px(3,5,"#A0A8B0",s),px(4,5,"#B0B8C0",s),px(5,5,"#B8C0C8",s),px(6,5,"#A8B0B8",s),
+      /* handle gold + brown */
+      px(6,6,"#C9A020",s),px(7,6,"#E0B830",s),
+      px(6,7,"#8B4513",s),px(7,7,"#6B3000",s),
+      px(6,8,"#8B4513",s),px(7,8,"#7B3A10",s),
+      px(6,9,"#7B3A10",s),px(7,9,"#6B3000",s),
+      px(6,10,"#8B4513",s),px(7,10,"#7B3A10",s),
+      px(7,11,"#C9A020",s),px(8,11,"#A07010",s),
+    ],
+    "Mazas": (s=2)=>[
+      /* mace head */
+      px(5,0,"#B0B8C0",s),px(6,0,"#D0D8E0",s),px(7,0,"#B0B8C0",s),
+      px(4,1,"#A8B0B8",s),px(5,1,"#C8D0D8",s),px(6,1,"#E0E8F0",s),px(7,1,"#C8D0D8",s),px(8,1,"#A0A8B0",s),
+      px(4,2,"#989FA8",s),px(5,2,"#C0C8D0",s),px(6,2,"#D8E0E8",s),px(7,2,"#C0C8D0",s),px(8,2,"#989FA8",s),
+      px(4,3,"#A0A8B0",s),px(5,3,"#B8C0C8",s),px(6,3,"#C8D0D8",s),px(7,3,"#B8C0C8",s),px(8,3,"#A0A8B0",s),
+      px(5,4,"#C9A020",s),px(6,4,"#E0B830",s),px(7,4,"#C9A020",s),
+      /* handle */
+      px(6,5,"#8B4513",s),px(7,5,"#7B3A10",s),
+      px(6,6,"#8B4513",s),px(7,6,"#6B3000",s),
+      px(6,7,"#7B3A10",s),px(7,7,"#8B4513",s),
+      px(6,8,"#8B4513",s),px(7,8,"#7B3A10",s),
+      px(6,9,"#7B3A10",s),px(7,9,"#6B3000",s),
+      px(6,10,"#8B4513",s),px(7,10,"#7B3A10",s),
+      px(6,11,"#C9A020",s),px(7,11,"#A07010",s),
+    ],
+    "Distancia": (s=2)=>[
+      /* bow */
+      px(2,0,"#6B4020",s),px(3,0,"#8B5A30",s),
+      px(1,1,"#5A3010",s),px(2,1,"#7B4A20",s),px(3,1,"#9B6A40",s),
+      px(1,2,"#6B4020",s),px(2,2,"#9B6A40",s),
+      px(1,3,"#7B4A20",s),px(2,3,"#B07840",s),
+      /* string */
+      px(3,2,"#D4B060",s),px(4,3,"#C8A050",s),px(5,4,"#C0A048",s),px(6,5,"#C8A050",s),px(7,6,"#D4B060",s),
+      px(1,4,"#7B4A20",s),px(2,4,"#A06830",s),
+      px(1,5,"#6B4020",s),px(2,5,"#9B6A40",s),
+      px(1,6,"#5A3010",s),px(2,6,"#7B4A20",s),px(3,6,"#9B6A40",s),
+      px(2,7,"#6B4020",s),px(3,7,"#8B5A30",s),
+      px(3,8,"#5A3010",s),px(4,8,"#6B4020",s),
+      /* arrow */
+      px(8,4,"#C0C8D0",s),px(9,3,"#D8E0E8",s),px(10,2,"#B0B8C0",s),
+      px(9,4,"#A0A8B0",s),px(10,3,"#989FA8",s),
+    ],
+    "Varitas": (s=2)=>[
+      /* wand with glowing tip */
+      px(1,0,"#8060D0",s),px(2,0,"#A080E8",s),
+      px(2,1,"#7050C0",s),px(3,1,"#9070D8",s),px(4,1,"#B090F0",s),
+      px(3,2,"#8060D0",s),px(4,2,"#A080E8",s),px(5,2,"#C0A0FF",s),
+      px(4,3,"#6040B0",s),px(5,3,"#8060C8",s),
+      /* glow effect */
+      px(1,1,"#D0A0FF",s),px(0,0,"#E8C8FF",s),px(0,1,"#D0A0FF",s),
+      /* handle */
+      px(5,4,"#5A3010",s),px(6,4,"#7B4A20",s),
+      px(6,5,"#6B4020",s),px(7,5,"#8B5A30",s),
+      px(7,6,"#7B4A20",s),px(8,6,"#9B6A40",s),
+      px(8,7,"#8B5A30",s),px(9,7,"#A06830",s),
+      px(9,8,"#9B6A40",s),px(10,8,"#B07840",s),
+      px(10,9,"#A06830",s),px(11,9,"#C9A020",s),
+    ],
+    "Bastones": (s=2)=>[
+      /* rod / staff */
+      px(1,0,"#2060A0",s),px(2,0,"#3080C0",s),
+      px(2,1,"#1850A0",s),px(3,1,"#2870B8",s),px(4,1,"#40A0D8",s),
+      px(3,2,"#1060A8",s),px(4,2,"#2080C0",s),px(5,2,"#38A0D8",s),
+      /* ice glow */
+      px(1,1,"#A0D8F0",s),px(0,0,"#C0E8FF",s),px(0,1,"#A0D8F0",s),
+      /* shaft */
+      px(5,3,"#6B4020",s),px(6,3,"#8B5A30",s),
+      px(6,4,"#7B4A20",s),px(7,4,"#9B6A40",s),
+      px(7,5,"#8B5A30",s),px(8,5,"#A06830",s),
+      px(8,6,"#9B6A40",s),px(9,6,"#B07840",s),
+      px(9,7,"#A06830",s),px(10,7,"#C09050",s),
+      px(10,8,"#B07840",s),px(11,8,"#D0A060",s),
+      px(11,9,"#C09050",s),px(12,9,"#C9A020",s),
+    ],
+    "Armaduras": (s=2)=>[
+      /* chest plate */
+      px(3,0,"#B0B8C0",s),px(4,0,"#C8D0D8",s),px(5,0,"#D8E0E8",s),px(6,0,"#D0D8E0",s),px(7,0,"#C0C8D0",s),px(8,0,"#B0B8C0",s),
+      px(2,1,"#A0A8B0",s),px(3,1,"#C0C8D0",s),px(4,1,"#E0E8F0",s),px(5,1,"#F0F8FF",s),px(6,1,"#E8F0F8",s),px(7,1,"#D8E0E8",s),px(8,1,"#C0C8D0",s),px(9,1,"#A8B0B8",s),
+      px(2,2,"#989FA8",s),px(3,2,"#B8C0C8",s),px(4,2,"#D8E0E8",s),px(5,2,"#E8F0F8",s),px(6,2,"#E0E8F0",s),px(7,2,"#D0D8E0",s),px(8,2,"#B8C0C8",s),px(9,2,"#A0A8B0",s),
+      /* gold trim */
+      px(2,3,"#C9A020",s),px(3,3,"#E0B830",s),px(4,3,"#D0A820",s),px(5,3,"#B8C0C8",s),px(6,3,"#B0B8C0",s),px(7,3,"#D0A820",s),px(8,3,"#E0B830",s),px(9,3,"#C9A020",s),
+      px(3,4,"#A8B0B8",s),px(4,4,"#C0C8D0",s),px(5,4,"#D0D8E0",s),px(6,4,"#C8D0D8",s),px(7,4,"#B8C0C8",s),px(8,4,"#A0A8B0",s),
+      px(3,5,"#989FA8",s),px(4,5,"#B0B8C0",s),px(5,5,"#C0C8D0",s),px(6,5,"#B8C0C8",s),px(7,5,"#A8B0B8",s),px(8,5,"#989FA8",s),
+      /* bottom trim */
+      px(4,6,"#C9A020",s),px(5,6,"#E0B830",s),px(6,6,"#E0B830",s),px(7,6,"#C9A020",s),
+    ],
+    "Cascos": (s=2)=>[
+      /* helmet */
+      px(4,0,"#989FA8",s),px(5,0,"#B8C0C8",s),px(6,0,"#C8D0D8",s),px(7,0,"#B8C0C8",s),px(8,0,"#989FA8",s),
+      px(3,1,"#909098",s),px(4,1,"#B0B8C0",s),px(5,1,"#D8E0E8",s),px(6,1,"#E0E8F0",s),px(7,1,"#D0D8E0",s),px(8,1,"#B0B8C0",s),px(9,1,"#909098",s),
+      px(2,2,"#888890",s),px(3,2,"#A8B0B8",s),px(4,2,"#C8D0D8",s),px(5,2,"#E0E8F0",s),px(6,2,"#E8F0F8",s),px(7,2,"#D8E0E8",s),px(8,2,"#C0C8D0",s),px(9,2,"#A0A8B0",s),px(10,2,"#888890",s),
+      /* visor gold */
+      px(3,3,"#C9A020",s),px(4,3,"#E0B830",s),px(5,3,"#C8D0D8",s),px(6,3,"#D8E0E8",s),px(7,3,"#C8D0D8",s),px(8,3,"#E0B830",s),px(9,3,"#C9A020",s),
+      px(3,4,"#A07010",s),px(4,4,"#B0B8C0",s),px(5,4,"#888890",s),px(6,4,"#A0A8B0",s),px(7,4,"#888890",s),px(8,4,"#B0B8C0",s),px(9,4,"#A07010",s),
+      /* cheeks */
+      px(2,4,"#A0A8B0",s),px(10,4,"#A0A8B0",s),
+      px(2,5,"#989FA8",s),px(3,5,"#B0B8C0",s),px(9,5,"#B0B8C0",s),px(10,5,"#989FA8",s),
+    ],
+    "Pantalones": (s=2)=>[
+      /* leg armor */
+      px(3,0,"#C9A020",s),px(4,0,"#E0B830",s),px(5,0,"#E0B830",s),px(6,0,"#E0B830",s),px(7,0,"#E0B830",s),px(8,0,"#C9A020",s),
+      px(3,1,"#A8B0B8",s),px(4,1,"#C8D0D8",s),px(5,1,"#D8E0E8",s),px(6,1,"#D8E0E8",s),px(7,1,"#C8D0D8",s),px(8,1,"#A8B0B8",s),
+      px(3,2,"#989FA8",s),px(4,2,"#B8C0C8",s),px(5,2,"#C8D0D8",s),px(6,2,"#C8D0D8",s),px(7,2,"#B8C0C8",s),px(8,2,"#989FA8",s),
+      /* split */
+      px(3,3,"#A0A8B0",s),px(4,3,"#B0B8C0",s),px(5,3,"#B8C0C8",s),px(6,3,"#B8C0C8",s),px(7,3,"#B0B8C0",s),px(8,3,"#A0A8B0",s),
+      /* left leg */
+      px(3,4,"#989FA8",s),px(4,4,"#A8B0B8",s),px(5,4,"#B0B8C0",s),
+      px(3,5,"#909098",s),px(4,5,"#A0A8B0",s),px(5,5,"#A8B0B8",s),
+      px(3,6,"#888890",s),px(4,6,"#989FA8",s),px(5,6,"#A0A8B0",s),
+      /* right leg */
+      px(6,4,"#B0B8C0",s),px(7,4,"#A8B0B8",s),px(8,4,"#989FA8",s),
+      px(6,5,"#A8B0B8",s),px(7,5,"#A0A8B0",s),px(8,5,"#909098",s),
+      px(6,6,"#A0A8B0",s),px(7,6,"#989FA8",s),px(8,6,"#888890",s),
+    ],
+    "Escudos": (s=2)=>[
+      /* shield shape */
+      px(3,0,"#A0A8B0",s),px(4,0,"#C0C8D0",s),px(5,0,"#D0D8E0",s),px(6,0,"#D8E0E8",s),px(7,0,"#D0D8E0",s),px(8,0,"#C0C8D0",s),px(9,0,"#A0A8B0",s),
+      px(2,1,"#989FA8",s),px(3,1,"#B8C0C8",s),px(4,1,"#D8E0E8",s),px(5,1,"#E8F0F8",s),px(6,1,"#F0F8FF",s),px(7,1,"#E8F0F8",s),px(8,1,"#D8E0E8",s),px(9,1,"#B8C0C8",s),px(10,1,"#989FA8",s),
+      px(2,2,"#A0A8B0",s),px(3,2,"#C0C8D0",s),px(4,2,"#E0E8F0",s),px(5,2,"#F0F8FF",s),px(6,2,"#E8F0F8",s),px(7,2,"#E0E8F0",s),px(8,2,"#D0D8E0",s),px(9,2,"#C0C8D0",s),px(10,2,"#A0A8B0",s),
+      /* gold boss */
+      px(5,3,"#C9A020",s),px(6,3,"#E0B830",s),px(7,3,"#C9A020",s),
+      px(4,4,"#B89010",s),px(5,4,"#D4A820",s),px(6,4,"#F0C840",s),px(7,4,"#D4A820",s),px(8,4,"#B89010",s),
+      px(5,5,"#C9A020",s),px(6,5,"#E0B830",s),px(7,5,"#C9A020",s),
+      /* lower shield */
+      px(3,6,"#A8B0B8",s),px(4,6,"#C0C8D0",s),px(5,6,"#D0D8E0",s),px(6,6,"#D8E0E8",s),px(7,6,"#D0D8E0",s),px(8,6,"#C0C8D0",s),px(9,6,"#A8B0B8",s),
+      px(4,7,"#989FA8",s),px(5,7,"#B8C0C8",s),px(6,7,"#C8D0D8",s),px(7,7,"#B8C0C8",s),px(8,7,"#989FA8",s),
+      px(5,8,"#909098",s),px(6,8,"#A0A8B0",s),px(7,8,"#909098",s),
+      px(6,9,"#888890",s),
+    ],
+    "Botas": (s=2)=>[
+      /* boot shape */
+      px(3,0,"#A0A8B0",s),px(4,0,"#C0C8D0",s),px(5,0,"#D0D8E0",s),px(6,0,"#C8D0D8",s),
+      px(3,1,"#989FA8",s),px(4,1,"#B8C0C8",s),px(5,1,"#C8D0D8",s),px(6,1,"#C0C8D0",s),
+      px(3,2,"#909098",s),px(4,2,"#A8B0B8",s),px(5,2,"#B8C0C8",s),px(6,2,"#B0B8C0",s),
+      px(3,3,"#888890",s),px(4,3,"#A0A8B0",s),px(5,3,"#A8B0B8",s),px(6,3,"#A0A8B0",s),
+      /* sole gold trim */
+      px(2,4,"#C9A020",s),px(3,4,"#E0B830",s),px(4,4,"#989FA8",s),px(5,4,"#A0A8B0",s),px(6,4,"#989FA8",s),px(7,4,"#E0B830",s),px(8,4,"#C9A020",s),
+      px(2,5,"#A07010",s),px(3,5,"#C9A020",s),px(4,5,"#888890",s),px(5,5,"#909098",s),px(6,5,"#888890",s),px(7,5,"#C9A020",s),px(8,5,"#A07010",s),
+    ],
+    "Amuletos": (s=2)=>[
+      /* amulet gem */
+      px(5,0,"#C030A0",s),px(6,0,"#E050C0",s),px(7,0,"#C030A0",s),
+      px(4,1,"#A02080",s),px(5,1,"#E060D0",s),px(6,1,"#FF80F0",s),px(7,1,"#E060D0",s),px(8,1,"#A02080",s),
+      px(4,2,"#B03090",s),px(5,2,"#D050B0",s),px(6,2,"#F070E0",s),px(7,2,"#D050B0",s),px(8,2,"#B03090",s),
+      px(5,3,"#A02080",s),px(6,3,"#C040A0",s),px(7,3,"#A02080",s),
+      /* chain gold */
+      px(6,4,"#C9A020",s),
+      px(5,5,"#B89010",s),px(7,5,"#B89010",s),
+      px(4,6,"#C9A020",s),px(8,6,"#C9A020",s),
+      px(3,7,"#B89010",s),px(9,7,"#B89010",s),
+    ],
+    "Anillos": (s=2)=>[
+      /* ring circle */
+      px(5,1,"#C9A020",s),px(6,1,"#E0B830",s),px(7,1,"#C9A020",s),
+      px(4,2,"#B89010",s),px(5,2,"#D4A820",s),px(8,2,"#D4A820",s),px(9,2,"#B89010",s),
+      /* gem */
+      px(5,3,"#3080E0",s),px(6,3,"#50A0FF",s),px(7,3,"#3080E0",s),
+      px(5,4,"#2060C0",s),px(6,4,"#4090F0",s),px(7,4,"#2060C0",s),
+      px(4,4,"#B89010",s),px(8,4,"#B89010",s),
+      px(5,5,"#D4A820",s),px(6,5,"#E0B830",s),px(7,5,"#D4A820",s),
+      px(4,5,"#C9A020",s),px(8,5,"#C9A020",s),
+      px(5,6,"#C9A020",s),px(6,6,"#D4A820",s),px(7,6,"#C9A020",s),
+    ],
+    "Libros": (s=2)=>[
+      /* spellbook */
+      px(2,0,"#4060A0",s),px(3,0,"#5070B0",s),px(4,0,"#6080C0",s),px(5,0,"#7090D0",s),px(6,0,"#6080C0",s),px(7,0,"#5070B0",s),px(8,0,"#4060A0",s),
+      px(2,1,"#3050A0",s),px(3,1,"#4060B0",s),px(4,1,"#F0E8D0",s),px(5,1,"#F8F0E0",s),px(6,1,"#F0E8D0",s),px(7,1,"#4060B0",s),px(8,1,"#3050A0",s),
+      /* pages */
+      px(3,2,"#C9A020",s),px(4,2,"#E8E0C8",s),px(5,2,"#F0E8D0",s),px(6,2,"#E8E0C8",s),px(7,2,"#C9A020",s),
+      /* rune lines */
+      px(4,3,"#8060D0",s),px(5,3,"#A080E8",s),px(6,3,"#8060D0",s),
+      px(4,4,"#E8E0C8",s),px(5,4,"#8060D0",s),px(6,4,"#E8E0C8",s),
+      px(4,5,"#7050C0",s),px(5,5,"#E8E0C8",s),px(6,5,"#9070D8",s),
+      px(3,6,"#C9A020",s),px(4,6,"#E8E0C8",s),px(5,6,"#F0E8D0",s),px(6,6,"#E8E0C8",s),px(7,6,"#C9A020",s),
+      px(2,7,"#3050A0",s),px(3,7,"#4060B0",s),px(4,7,"#5070C0",s),px(5,7,"#6080D0",s),px(6,7,"#5070C0",s),px(7,7,"#4060B0",s),px(8,7,"#3050A0",s),
+    ],
+    "Otros": (s=2)=>[
+      /* crystal coin / misc */
+      px(5,0,"#40B0E0",s),px(6,0,"#60D0FF",s),px(7,0,"#40B0E0",s),
+      px(4,1,"#30A0D0",s),px(5,1,"#80E0FF",s),px(6,1,"#A0F0FF",s),px(7,1,"#80E0FF",s),px(8,1,"#30A0D0",s),
+      px(4,2,"#40B0E0",s),px(5,2,"#60C8F0",s),px(6,2,"#80E0FF",s),px(7,2,"#60C8F0",s),px(8,2,"#40B0E0",s),
+      px(5,3,"#30A0D0",s),px(6,3,"#50C0E8",s),px(7,3,"#30A0D0",s),
+      /* star shine */
+      px(6,1,"#FFFFFF",s),px(5,0,"#C0E8FF",s),
+    ],
+  };
+
+  const s=2;
+  const grid = sprites[cat] ? sprites[cat](s) : sprites["Otros"](s);
+  const bgColor = {
+    "Espadas":"#12141A","Hachas":"#12141A","Mazas":"#121418",
+    "Distancia":"#101812","Varitas":"#140C1A","Bastones":"#0C1218",
+    "Armaduras":"#121418","Cascos":"#121418","Pantalones":"#121418",
+    "Escudos":"#121418","Botas":"#121418",
+    "Amuletos":"#160C16","Anillos":"#141008","Libros":"#0C1020","Otros":"#0C1618",
+  }[cat]||"#101418";
+
+  return(
+    <div style={{width:size,height:size,background:bg?bgColor:"transparent",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
+      <svg width={32} height={32} viewBox="0 0 32 32" style={{imageRendering:"pixelated"}}>
+        {grid}
+      </svg>
+    </div>
+  );
+}
+function SellScreen({onPublished}){
+  const [phase,setPhase]=useState("pick"); // pick | form
+  const [selectedItem,setSelectedItem]=useState(null);
+  const [search,setSearch]=useState("");
+  const [cat,setCat]=useState("Todos");
+
+  /* ── TIBIA ITEM DATABASE (TibiaWiki data) ── */
+  const TIBIA_ITEMS=[
+    /* SWORDS */
+    {name:"Blessed Sword",      cat:"Espadas",   type:"Sword 2H",  lvl:120,atk:55,def:22,arm:null,voc:"Knight",   wiki:"Blessed_Sword"},
+    {name:"Mortal Mace",        cat:"Mazas",      type:"Club 1H",   lvl:250,atk:8, def:33,arm:null,voc:"Knight",   wiki:"Mortal_Mace"},
+    {name:"Falcon Longsword",   cat:"Espadas",   type:"Sword 2H",  lvl:300,atk:56,def:34,arm:null,voc:"Knight",   wiki:"Falcon_Longsword"},
+    {name:"Gnome Sword",        cat:"Espadas",   type:"Sword 1H",  lvl:200,atk:51,def:32,arm:null,voc:"Knight",   wiki:"Gnome_Sword"},
+    {name:"Heroic Axe",         cat:"Hachas",    type:"Axe 1H",    lvl:130,atk:52,def:22,arm:null,voc:"Knight",   wiki:"Heroic_Axe"},
+    {name:"Demonbone Axe",      cat:"Hachas",    type:"Axe 2H",    lvl:200,atk:57,def:20,arm:null,voc:"Knight",   wiki:"Demonbone_Axe"},
+    {name:"Ornamented Axe",     cat:"Hachas",    type:"Axe 2H",    lvl:75, atk:49,def:19,arm:null,voc:"Knight",   wiki:"Ornamented_Axe"},
+    {name:"Falcon Battleaxe",   cat:"Hachas",    type:"Axe 2H",    lvl:300,atk:10,def:33,arm:null,voc:"Knight",   wiki:"Falcon_Battleaxe"},
+    {name:"Soulcutter",         cat:"Espadas",   type:"Sword 1H",  lvl:400,atk:7, def:32,arm:null,voc:"Knight",   wiki:"Soulcutter"},
+    {name:"Souleater",          cat:"Hachas",    type:"Axe 2H",    lvl:400,atk:10,def:34,arm:null,voc:"Knight",   wiki:"Souleater_(Axe)"},
+    {name:"Soulshredder",       cat:"Espadas",   type:"Sword 2H",  lvl:400,atk:10,def:35,arm:null,voc:"Knight",   wiki:"Soulshredder"},
+    {name:"Naga Sword",         cat:"Espadas",   type:"Sword 1H",  lvl:300,atk:8, def:31,arm:null,voc:"Knight",   wiki:"Naga_Sword"},
+    {name:"Koshei's Ancient Axe",cat:"Hachas",   type:"Axe 2H",    lvl:60, atk:46,def:15,arm:null,voc:"Knight",   wiki:"Koshei%27s_Ancient_Axe"},
+    {name:"Haunted Blade",      cat:"Espadas",   type:"Sword 1H",  lvl:70, atk:46,def:24,arm:null,voc:"Knight",   wiki:"Haunted_Blade"},
+    {name:"The Epiphany",       cat:"Espadas",   type:"Sword 1H",  lvl:100,atk:48,def:27,arm:null,voc:"Knight",   wiki:"The_Epiphany"},
+    /* DISTANCE */
+    {name:"Falcon Bow",         cat:"Distancia", type:"Bow 2H",    lvl:300,atk:null,def:null,arm:null,voc:"Paladin", wiki:"Falcon_Bow"},
+    {name:"Composite Hornbow",  cat:"Distancia", type:"Bow 2H",    lvl:75, atk:null,def:null,arm:null,voc:"Paladin", wiki:"Composite_Hornbow"},
+    {name:"Gnome Bow",          cat:"Distancia", type:"Bow 2H",    lvl:200,atk:null,def:null,arm:null,voc:"Paladin", wiki:"Gnome_Bow"},
+    {name:"Soulbleeder",        cat:"Distancia", type:"Bow 2H",    lvl:400,atk:null,def:null,arm:null,voc:"Paladin", wiki:"Soulbleeder"},
+    {name:"Crossbow",           cat:"Distancia", type:"Crossbow",  lvl:0,  atk:null,def:null,arm:null,voc:"Todos",   wiki:"Crossbow"},
+    /* WANDS & RODS */
+    {name:"Falcon Wand",        cat:"Varitas",   type:"Wand",      lvl:300,atk:null,def:null,arm:null,voc:"Sorcerer",wiki:"Falcon_Wand"},
+    {name:"Falcon Rod",         cat:"Bastones",  type:"Rod",       lvl:300,atk:null,def:null,arm:null,voc:"Druid",   wiki:"Falcon_Rod"},
+    {name:"Wand of Vortex",     cat:"Varitas",   type:"Wand",      lvl:33, atk:null,def:null,arm:null,voc:"Sorcerer",wiki:"Wand_of_Vortex"},
+    {name:"Wand of Cosmic Energy",cat:"Varitas", type:"Wand",      lvl:65, atk:null,def:null,arm:null,voc:"Sorcerer",wiki:"Wand_of_Cosmic_Energy"},
+    {name:"Gnome Rod",          cat:"Bastones",  type:"Rod",       lvl:200,atk:null,def:null,arm:null,voc:"Druid",   wiki:"Gnome_Rod"},
+    {name:"Soulhexer",          cat:"Bastones",  type:"Rod",       lvl:400,atk:null,def:null,arm:null,voc:"Druid",   wiki:"Soulhexer"},
+    {name:"Soultainter",        cat:"Varitas",   type:"Wand",      lvl:400,atk:null,def:null,arm:null,voc:"Sorcerer",wiki:"Soultainter"},
+    {name:"Cobra Wand",         cat:"Varitas",   type:"Wand",      lvl:250,atk:null,def:null,arm:null,voc:"Sorcerer",wiki:"Cobra_Wand"},
+    {name:"Cobra Rod",          cat:"Bastones",  type:"Rod",       lvl:250,atk:null,def:null,arm:null,voc:"Druid",   wiki:"Cobra_Rod"},
+    /* ARMORS */
+    {name:"Demon Armor",        cat:"Armaduras", type:"Armor",     lvl:60, atk:null,def:null,arm:16,voc:"Knight",   wiki:"Demon_Armor"},
+    {name:"Dragon Scale Mail",  cat:"Armaduras", type:"Armor",     lvl:60, atk:null,def:null,arm:14,voc:"Knight",   wiki:"Dragon_Scale_Mail"},
+    {name:"Gnome Armor",        cat:"Armaduras", type:"Armor",     lvl:200,atk:null,def:null,arm:18,voc:"Knight",   wiki:"Gnome_Armor"},
+    {name:"Falcon Plate",       cat:"Armaduras", type:"Armor",     lvl:300,atk:null,def:null,arm:20,voc:"Knight",   wiki:"Falcon_Plate"},
+    {name:"Cobra Armor",        cat:"Armaduras", type:"Armor",     lvl:220,atk:null,def:null,arm:18,voc:"Knight",   wiki:"Cobra_Armor"},
+    {name:"Magma Coat",         cat:"Armaduras", type:"Armor",     lvl:80, atk:null,def:null,arm:14,voc:"Mage",     wiki:"Magma_Coat"},
+    {name:"Dream Shroud",       cat:"Armaduras", type:"Armor",     lvl:250,atk:null,def:null,arm:14,voc:"Druid",    wiki:"Dream_Shroud"},
+    {name:"Arcane Robe",        cat:"Armaduras", type:"Armor",     lvl:75, atk:null,def:null,arm:12,voc:"Mage",     wiki:"Arcane_Robe"},
+    {name:"Falcon Coat",        cat:"Armaduras", type:"Armor",     lvl:300,atk:null,def:null,arm:16,voc:"Mage",     wiki:"Falcon_Coat"},
+    {name:"Dwarven Armor",      cat:"Armaduras", type:"Armor",     lvl:80, atk:null,def:null,arm:15,voc:"Knight",   wiki:"Dwarven_Armor"},
+    /* HELMETS */
+    {name:"Demon Helmet",       cat:"Cascos",    type:"Helmet",    lvl:60, atk:null,def:38,arm:null,voc:"Knight",   wiki:"Demon_Helmet"},
+    {name:"Gnome Helmet",       cat:"Cascos",    type:"Helmet",    lvl:200,atk:null,def:null,arm:6, voc:"Knight",   wiki:"Gnome_Helmet"},
+    {name:"Falcon Circlet",     cat:"Cascos",    type:"Helmet",    lvl:300,atk:null,def:null,arm:8, voc:"Mage",     wiki:"Falcon_Circlet"},
+    {name:"Falcon Coif",        cat:"Cascos",    type:"Helmet",    lvl:300,atk:null,def:null,arm:9, voc:"Knight",   wiki:"Falcon_Coif"},
+    {name:"Cobra Hood",         cat:"Cascos",    type:"Helmet",    lvl:220,atk:null,def:null,arm:7, voc:"Mage",     wiki:"Cobra_Hood"},
+    {name:"Crown Helmet",       cat:"Cascos",    type:"Helmet",    lvl:60, atk:null,def:32,arm:null,voc:"Todos",    wiki:"Crown_Helmet"},
+    {name:"Iron Helmet",        cat:"Cascos",    type:"Helmet",    lvl:0,  atk:null,def:25,arm:null,voc:"Todos",    wiki:"Iron_Helmet"},
+    {name:"Royal Helmet",       cat:"Cascos",    type:"Helmet",    lvl:70, atk:null,def:null,arm:7, voc:"Todos",    wiki:"Royal_Helmet"},
+    /* LEGS */
+    {name:"Demon Legs",         cat:"Pantalones",type:"Legs",      lvl:60, atk:null,def:null,arm:9, voc:"Knight",   wiki:"Demon_Legs"},
+    {name:"Golden Legs",        cat:"Pantalones",type:"Legs",      lvl:60, atk:null,def:null,arm:10,voc:"Knight",   wiki:"Golden_Legs"},
+    {name:"Gnome Legs",         cat:"Pantalones",type:"Legs",      lvl:200,atk:null,def:null,arm:12,voc:"Knight",   wiki:"Gnome_Legs"},
+    {name:"Falcon Greaves",     cat:"Pantalones",type:"Legs",      lvl:300,atk:null,def:null,arm:14,voc:"Knight",   wiki:"Falcon_Greaves"},
+    {name:"Cobra Legs",         cat:"Pantalones",type:"Legs",      lvl:220,atk:null,def:null,arm:12,voc:"Knight",   wiki:"Cobra_Legs"},
+    {name:"Platinum Legs",      cat:"Pantalones",type:"Legs",      lvl:60, atk:null,def:null,arm:9, voc:"Mage",     wiki:"Platinum_Legs"},
+    /* SHIELDS */
+    {name:"Blessed Shield",     cat:"Escudos",   type:"Shield",    lvl:120,atk:null,def:45,arm:null,voc:"Knight",   wiki:"Blessed_Shield"},
+    {name:"Demon Shield",       cat:"Escudos",   type:"Shield",    lvl:60, atk:null,def:40,arm:null,voc:"Knight",   wiki:"Demon_Shield"},
+    {name:"Gnome Shield",       cat:"Escudos",   type:"Shield",    lvl:200,atk:null,def:50,arm:null,voc:"Knight",   wiki:"Gnome_Shield"},
+    {name:"Falcon Shield",      cat:"Escudos",   type:"Shield",    lvl:300,atk:null,def:56,arm:null,voc:"Knight",   wiki:"Falcon_Shield"},
+    {name:"Medusa Shield",      cat:"Escudos",   type:"Shield",    lvl:75, atk:null,def:36,arm:null,voc:"Todos",    wiki:"Medusa_Shield"},
+    {name:"Tower Shield",       cat:"Escudos",   type:"Shield",    lvl:0,  atk:null,def:38,arm:null,voc:"Knight",   wiki:"Tower_Shield"},
+    /* BOOTS */
+    {name:"Boots of Haste",     cat:"Botas",     type:"Boots",     lvl:0,  atk:null,def:null,arm:2, voc:"Todos",    wiki:"Boots_of_Haste"},
+    {name:"Demon Boots",        cat:"Botas",     type:"Boots",     lvl:60, atk:null,def:null,arm:4, voc:"Knight",   wiki:"Demon_Boots"},
+    {name:"Gnome Boots",        cat:"Botas",     type:"Boots",     lvl:200,atk:null,def:null,arm:6, voc:"Todos",    wiki:"Gnome_Boots"},
+    {name:"Falcon Boots",       cat:"Botas",     type:"Boots",     lvl:300,atk:null,def:null,arm:8, voc:"Todos",    wiki:"Falcon_Boots"},
+    {name:"Gold Boots",         cat:"Botas",     type:"Boots",     lvl:80, atk:null,def:null,arm:4, voc:"Todos",    wiki:"Gold_Boots"},
+    /* AMULETS */
+    {name:"Amulet of Loss",     cat:"Amuletos",  type:"Amulet",    lvl:0,  atk:null,def:null,arm:null,voc:"Todos",  wiki:"Amulet_of_Loss"},
+    {name:"Stone Skin Amulet",  cat:"Amuletos",  type:"Amulet",    lvl:0,  atk:null,def:null,arm:null,voc:"Todos",  wiki:"Stone_Skin_Amulet"},
+    {name:"Necklace of the Deep",cat:"Amuletos", type:"Amulet",    lvl:0,  atk:null,def:null,arm:3, voc:"Todos",    wiki:"Necklace_of_the_Deep"},
+    {name:"Falcon Escutcheon",  cat:"Amuletos",  type:"Amulet",    lvl:300,atk:null,def:null,arm:5, voc:"Todos",    wiki:"Falcon_Escutcheon"},
+    {name:"Cobra Amulet",       cat:"Amuletos",  type:"Amulet",    lvl:220,atk:null,def:null,arm:4, voc:"Todos",    wiki:"Cobra_Amulet"},
+    /* RINGS */
+    {name:"Ring of Healing",    cat:"Anillos",   type:"Ring",      lvl:0,  atk:null,def:null,arm:null,voc:"Todos",  wiki:"Ring_of_Healing"},
+    {name:"Stealth Ring",       cat:"Anillos",   type:"Ring",      lvl:0,  atk:null,def:null,arm:null,voc:"Todos",  wiki:"Stealth_Ring"},
+    {name:"Gnome Ring",         cat:"Anillos",   type:"Ring",      lvl:200,atk:null,def:null,arm:null,voc:"Todos",  wiki:"Gnome_Ring"},
+    {name:"Falcon Trophy",      cat:"Anillos",   type:"Ring",      lvl:300,atk:null,def:null,arm:null,voc:"Todos",  wiki:"Falcon_Trophy"},
+    /* MISC VALUABLES */
+    {name:"Crystal Coin",       cat:"Otros",     type:"Currency",  lvl:0,  atk:null,def:null,arm:null,voc:"Todos",  wiki:"Crystal_Coin"},
+    {name:"Tibia Coin",         cat:"Otros",     type:"Currency",  lvl:0,  atk:null,def:null,arm:null,voc:"Todos",  wiki:"Tibia_Coin"},
+    {name:"Umbral Master Bow",  cat:"Distancia", type:"Bow 2H",    lvl:250,atk:null,def:null,arm:null,voc:"Paladin",wiki:"Umbral_Master_Bow"},
+    {name:"Umbral Master Slayer",cat:"Espadas",  type:"Sword 2H",  lvl:250,atk:10,def:36,arm:null,voc:"Knight",    wiki:"Umbral_Master_Slayer"},
+    {name:"Spellbook of Dark Mysteries",cat:"Libros",type:"Spellbook",lvl:80,atk:null,def:28,arm:null,voc:"Mage",  wiki:"Spellbook_of_Dark_Mysteries"},
+    {name:"Spellbook of Lost Souls",cat:"Libros", type:"Spellbook",lvl:130,atk:null,def:30,arm:null,voc:"Mage",   wiki:"Spellbook_of_Lost_Souls"},
+  ];
+
+  const CATS=["Todos","Espadas","Hachas","Mazas","Distancia","Varitas","Bastones","Armaduras","Cascos","Pantalones","Escudos","Botas","Amuletos","Anillos","Libros","Otros"];
+
+  const filtered=DEMO_ITEMS.filter(i=>
+    (cat==="Todos"||i.cat===cat)&&
+    (search===""||i.name.toLowerCase().includes(search.toLowerCase())||i.type.toLowerCase().includes(search.toLowerCase()))
+  );
+
+
+
+  /* ── PHASE: FORM (after picking item) ── */
+  if(phase==="form"&&selectedItem){
+    return <SellForm item={selectedItem} onBack={()=>{setPhase("pick");}}/>;
+  }
+
+  /* ── PHASE: PICK ITEM ── */
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="SELECCIONAR ITEM" action={
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted}}>{DEMO_ITEMS.length} items</span>
+      }/>
+
+      {/* search */}
+      <div style={{padding:"10px 14px 0",flexShrink:0}}>
+        <div style={{position:"relative"}}>
+          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMuted,pointerEvents:"none"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="Buscar item de Tibia..."
+            style={{width:"100%",background:C.bg1,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px 10px 32px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"}}/>
+        </div>
+      </div>
+
+      {/* category chips */}
+      <div style={{display:"flex",gap:6,padding:"8px 14px",overflowX:"auto",scrollbarWidth:"none",flexShrink:0,paddingBottom:6}}>
+        {CATS.map(c=>(
+          <button key={c} onClick={()=>setCat(c)}
+            style={{background:cat===c?C.gold:C.bg1,border:`1px solid ${cat===c?C.gold:C.border}`,color:cat===c?"#1A1200":C.textSub,padding:"4px 12px",borderRadius:16,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:cat===c?700:400,flexShrink:0,transition:"all 0.15s",letterSpacing:0.3}}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* item list */}
+      <div className="scroll-panel" style={{flex:1,padding:"4px 14px 8px",minHeight:0}}>
+        {filtered.length===0&&(
+          <div style={{textAlign:"center",padding:40,color:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:12}}>
+            No se encontraron items
+          </div>
+        )}
+        {filtered.map((item,i)=>(
+          <div key={i} onClick={()=>{setSelectedItem(item);setPhase("form");}}
+            style={{display:"flex",alignItems:"center",gap:12,background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer",transition:"all 0.15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor=C.borderGold;e.currentTarget.style.background=C.bg3;}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.bg1;}}>
+
+            <TibiaSprite cat={item.cat} size={40}/>
+
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:C.goldText,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</div>
+              <div style={{fontSize:10,color:C.textSub,marginBottom:2}}>{item.type} · {item.voc}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {item.lvl>0&&<span style={{fontFamily:"monospace",fontSize:10,color:C.textMuted}}>Lvl {item.lvl}+</span>}
+                {item.atk&&<span style={{fontFamily:"monospace",fontSize:10,color:"#F87171"}}>Atk {item.atk}</span>}
+                {item.def&&<span style={{fontFamily:"monospace",fontSize:10,color:"#60A5FA"}}>Def {item.def}</span>}
+                {item.arm&&<span style={{fontFamily:"monospace",fontSize:10,color:"#4ADE80"}}>Arm {item.arm}</span>}
+              </div>
+            </div>
+            <span style={{color:C.borderGold,fontSize:18,flexShrink:0}}>›</span>
+          </div>
+        ))}
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+
+function SellForm({item,onBack}){
+  const [form,setForm]=useState({price:"",server:"Antica",desc:"",neg:false,tier:0});
+  const [done,setDone]=useState(false);
+  const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const inp={width:"100%",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"};
+
+  if(done) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="PUBLICAR ITEM" onBack={onBack}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",animation:"fadeUp 0.4s ease"}}>
+        <TibiaSprite cat={item.cat} size={64}/>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:C.goldText,textAlign:"center",marginBottom:6}}>¡Listing publicado!</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.gold,marginBottom:16}}>{item.name}</div>
+        <div style={{fontSize:13,color:C.textSub,textAlign:"center",lineHeight:1.7,marginBottom:28,fontFamily:"'Crimson Text',serif"}}>
+          Tu item ya es visible en el mercado de <span style={{color:C.goldText}}>{form.server}</span>.<br/>
+          Te avisaremos cuando alguien se interese.
+        </div>
+        <GoldBtn onClick={onBack}>← PUBLICAR OTRO ITEM</GoldBtn>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="PUBLICAR ITEM" onBack={onBack}/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+
+        {/* selected item card */}
+        <div style={{background:`linear-gradient(135deg,#201A08,#141210)`,border:`1px solid ${C.borderGold}`,borderRadius:12,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:14}}>
+          <TibiaSprite cat={item.cat} size={56}/>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.goldText,marginBottom:3}}>{item.name}</div>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:4}}>{item.type} · {item.voc}</div>
+            <div style={{display:"flex",gap:8}}>
+              {item.lvl>0&&<span style={{fontFamily:"monospace",fontSize:11,color:C.textMuted}}>Lvl {item.lvl}+</span>}
+              {item.atk&&<span style={{fontFamily:"monospace",fontSize:11,color:"#F87171"}}>Atk {item.atk}</span>}
+              {item.def&&<span style={{fontFamily:"monospace",fontSize:11,color:"#60A5FA"}}>Def {item.def}</span>}
+              {item.arm&&<span style={{fontFamily:"monospace",fontSize:11,color:"#4ADE80"}}>Arm {item.arm}</span>}
+            </div>
+          </div>
+          <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:10,cursor:"pointer"}}>
+            Cambiar
+          </button>
+        </div>
+
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:14}}>DETALLES DE VENTA</div>
+
+          {/* price */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Precio (gp)</div>
+            <input type="number" value={form.price} onChange={e=>upd("price",e.target.value)} placeholder="ej. 50000" style={inp}/>
+          </div>
+
+          {/* server */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Servidor</div>
+            <select value={form.server} onChange={e=>upd("server",e.target.value)} style={inp}>
+              {["Antica","Secura","Refugia","Bona","Gladera","Harmonia","Luminera","Vunira","Peloria"].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* tier */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:6,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Tier del item</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[0,1,2,3,4].map(t=>(
+                <button key={t} onClick={()=>upd("tier",t)}
+                  style={{background:form.tier===t?"linear-gradient(135deg,#2A2010,#1A1808)":C.bg0,border:`1.5px solid ${form.tier===t?C.gold:C.border}`,borderRadius:7,padding:"7px 0",color:form.tier===t?C.gold:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:form.tier===t?700:400,cursor:"pointer",flex:1,transition:"all 0.15s"}}>
+                  {t===0?"Sin tier":`Tier ${t}`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* desc */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Notas adicionales</div>
+            <textarea value={form.desc} onChange={e=>upd("desc",e.target.value)} placeholder="Estado, imbues, screenshots disponibles..." rows={3} style={{...inp,resize:"none"}}/>
+          </div>
+
+          {/* negotiable */}
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+            <input type="checkbox" checked={form.neg} onChange={e=>upd("neg",e.target.checked)} style={{accentColor:C.gold,width:16,height:16}}/>
+            <span style={{fontSize:13,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>Precio negociable</span>
+          </label>
+        </div>
+
+        {/* screenshot */}
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginBottom:16,textAlign:"center",cursor:"pointer"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=C.borderGold}
+          onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+          <div style={{fontSize:32,marginBottom:6}}>📷</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.textMuted,letterSpacing:0.5}}>Agregar screenshots del item</div>
+          <div style={{fontSize:11,color:C.textMuted,marginTop:3,fontFamily:"'Crimson Text',serif"}}>Hasta 4 imágenes · opcional</div>
+        </div>
+
+        <GoldBtn onClick={async ()=>{
+          if(!form.price) return;
+          if(API_URL){
+            try{
+              await api("/api/listings",{method:"POST",body:JSON.stringify({
+                itemName:form.name||selectedItem?.name, itemCategory:selectedItem?.cat,
+                itemType:selectedItem?.type, itemLevel:selectedItem?.lvl||0,
+                itemTier:form.tier||0, price:parseInt(form.price),
+                server:form.server, negotiable:form.neg, description:form.desc,
+                itemVocation:selectedItem?.voc||"Todos",
+              })});
+              onPublished&&onPublished();
+            }catch(e){ console.warn("API publish failed, showing success anyway"); }
+          }
+          setDone(true);
+        }} disabled={!form.price}>
+          🗡️ PUBLICAR EN EL MERCADO
+        </GoldBtn>
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+
+function AccountScreen({onBack,onLogout,session,myListings}){
+  const sessionChar = session?.character;
+  const [chars,setChars]=useState(sessionChar
+    ? [{name:sessionChar.name,voc:sessionChar.voc||sessionChar.vocation,world:sessionChar.world,level:sessionChar.level,primary:true,active:true}]
+    : [{name:"Mi Personaje",voc:"Knight",world:"Antica",level:1,primary:true,active:true}]
+  );
+  const [addMode,setAddMode]=useState(false);   // show add-char panel
+  const [search,setSearch]=useState("");
+  const [searchStatus,setSearchStatus]=useState("idle"); // idle|loading|found|notfound
+  const [foundChar,setFoundChar]=useState(null);
+  const [activeIdx,setActiveIdx]=useState(0);   // which char is "selected" / shown
+  const [confirmDel,setConfirmDel]=useState(null); // index to delete
+
+  const active = chars[activeIdx] || chars[0];
+
+  /* fake TibiaData verify */
+  async function verifyChar(){
+    if(!search.trim()) return;
+    setSearchStatus("loading"); setFoundChar(null);
+    const exists=chars.find(c=>c.name.toLowerCase()===search.trim().toLowerCase());
+    if(exists){setSearchStatus("notfound");setFoundChar({err:"already"});return;}
+    try{
+      const r=await fakeAPICheck(search.trim());
+      if(r){setFoundChar(r);setSearchStatus("found");}
+      else{setSearchStatus("notfound");setFoundChar(null);}
+    }catch(e){
+      setSearchStatus("notfound");
+      setFoundChar({err:"connection", msg:e.message});
+    }
+  }
+  function addChar(){
+    if(!foundChar) return;
+    setChars(prev=>[...prev,{name:foundChar.name,voc:foundChar.voc,world:foundChar.world,level:foundChar.level,primary:false,active:true}]);
+    setAddMode(false);setSearch("");setSearchStatus("idle");setFoundChar(null);
+  }
+  function removeChar(i){
+    if(chars[i].primary) return;
+    setChars(prev=>prev.filter((_,idx)=>idx!==i));
+    if(activeIdx>=i) setActiveIdx(Math.max(0,activeIdx-1));
+    setConfirmDel(null);
+  }
+  function setPrimary(i){
+    setChars(prev=>prev.map((c,idx)=>({...c,primary:idx===i})));
+    setActiveIdx(i);
+  }
+
+  const VOC_ICON={Knight:"⚔️",Paladin:"🏹","Elder Druid":"🌿","Master Sorcerer":"🔮",Sorcerer:"🔮",Monk:"🥷"};
+  const VOC_COLOR={Knight:C.blue,Paladin:C.green,"Elder Druid":"#4ADE80","Master Sorcerer":C.purple,Sorcerer:C.purple,Monk:C.gold};
+
+  /* ── ADD CHARACTER PANEL ── */
+  if(addMode) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="AGREGAR PERSONAJE" onBack={()=>{setAddMode(false);setSearch("");setSearchStatus("idle");setFoundChar(null);}}/>
+      <div className="scroll-panel" style={{flex:1,padding:"16px 16px 8px",minHeight:0}}>
+
+        <div style={{background:"#141210",border:"1px solid #2A2418",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:C.textSub,fontFamily:"'Crimson Text',serif",lineHeight:1.7}}>
+          🧙 Ingresa el nombre exacto de tu personaje en Tibia. Lo verificaremos con la <span style={{color:C.gold}}>TibiaData API</span>.
+        </div>
+
+        {searchStatus!=="found"&&(
+          <div>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:6,fontFamily:"'Cinzel',serif",letterSpacing:0.5}}>Nombre del personaje</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <input value={search} onChange={e=>{setSearch(e.target.value);setSearchStatus("idle");setFoundChar(null);}}
+                onKeyDown={e=>e.key==="Enter"&&verifyChar()}
+                placeholder="ej. Gorthax"
+                style={{flex:1,background:"#181510",border:`1.5px solid ${searchStatus==="notfound"?"#8B1C1C":search?C.borderGold:"#3A3020"}`,borderRadius:8,padding:"12px 14px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"}}/>
+              <button onClick={verifyChar} disabled={!search.trim()||searchStatus==="loading"}
+                style={{background:`linear-gradient(180deg,#D4A830,#9A6E10)`,border:"none",borderRadius:8,padding:"0 16px",color:"#1A1000",fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0,opacity:(!search.trim()||searchStatus==="loading")?0.4:1}}>
+                {searchStatus==="loading"?<Spinner/>:"🔍"}
+              </button>
+            </div>
+
+            {searchStatus==="loading"&&(
+              <div style={{textAlign:"center",padding:"14px 0",fontFamily:"'Cinzel',serif",fontSize:11,color:C.textSub,letterSpacing:1,animation:"fadeIn 0.2s"}}>
+                Consultando TibiaData API...
+              </div>
+            )}
+            {searchStatus==="notfound"&&(
+              <div style={{background:"#2A0808",border:"1px solid #6B1C1C",borderRadius:8,padding:"12px 14px",fontSize:13,fontFamily:"'Crimson Text',serif",lineHeight:1.6}}>
+                {foundChar?.err==="already"
+                  ? <span style={{color:"#FCA5A5"}}>⚠️ Este personaje ya está en tu cuenta.</span>
+                  : <span style={{color:"#FCA5A5"}}>✗ Personaje no encontrado. Verifica el nombre exacto (mayúsculas y espacios).</span>
+                }
+              </div>
+            )}
+          </div>
+        )}
+
+        {searchStatus==="found"&&foundChar&&(
+          <div style={{animation:"fadeUp 0.3s ease"}}>
+            <div style={{fontSize:11,color:C.green,fontFamily:"'Cinzel',serif",letterSpacing:1,marginBottom:10}}>✓ PERSONAJE ENCONTRADO</div>
+            <div style={{background:"linear-gradient(135deg,#1E1C10,#181610)",border:`1px solid ${C.borderGold}`,borderRadius:12,padding:"16px 18px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                <div style={{fontSize:42}}>{VOC_ICON[foundChar.voc]||"🧙"}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:16,color:C.goldText}}>{foundChar.name}</div>
+                  <div style={{fontSize:12,color:C.textSub,marginTop:2}}>{foundChar.voc} · {foundChar.world}</div>
+                  <div style={{fontSize:12,color:C.textMuted,marginTop:1}}>Nivel {foundChar.level}{foundChar.guild?` · ${foundChar.guild}`:""}</div>
+                </div>
+                <Badge text="✓ Verificado" color={C.green}/>
+              </div>
+            </div>
+            <GoldBtn onClick={addChar}>➕ AGREGAR A MI CUENTA</GoldBtn>
+            <div style={{height:10}}/>
+            <GoldBtn outline onClick={()=>{setSearch("");setSearchStatus("idle");setFoundChar(null);}}>← BUSCAR OTRO</GoldBtn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  /* ── CONFIRM DELETE DIALOG ── */
+  if(confirmDel!==null) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="MI CUENTA" onBack={()=>setConfirmDel(null)}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",animation:"fadeUp 0.3s ease"}}>
+        <div style={{fontSize:52,marginBottom:16}}>⚠️</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:17,color:C.goldText,textAlign:"center",marginBottom:8}}>¿Eliminar personaje?</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.gold,marginBottom:6}}>{chars[confirmDel]?.name}</div>
+        <div style={{fontSize:14,color:C.textSub,textAlign:"center",lineHeight:1.7,fontFamily:"'Crimson Text',serif",marginBottom:28}}>
+          Se eliminará de tu cuenta. Tus listings activos de este personaje seguirán visibles hasta que expiren.
+        </div>
+        <GoldBtn danger onClick={()=>removeChar(confirmDel)}>ELIMINAR PERSONAJE</GoldBtn>
+        <div style={{height:12}}/>
+        <GoldBtn outline onClick={()=>setConfirmDel(null)}>CANCELAR</GoldBtn>
+      </div>
+    </div>
+  );
+
+  /* ── MAIN ACCOUNT SCREEN ── */
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="MI CUENTA" onBack={onBack}/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+
+        {/* ── ACTIVE CHARACTER HEADER ── */}
+        <div style={{background:"linear-gradient(135deg,#201A08,#1A1814)",border:`1px solid ${C.borderGold}`,borderRadius:14,padding:"20px 18px",marginBottom:14,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:12,right:14,display:"flex",gap:6,alignItems:"center"}}>
+            {active.primary&&<Badge text="★ Principal" color={C.gold}/>}
+            <Badge text="✓ Verificado" color={C.green}/>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+            <div style={{fontSize:52,lineHeight:1,filter:`drop-shadow(0 0 10px ${VOC_COLOR[active.voc]||C.gold}66)`}}>
+              {VOC_ICON[active.voc]||"🧙"}
+            </div>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.goldText}}>{active.name}</div>
+              <div style={{fontSize:13,color:C.textSub,marginTop:3,fontFamily:"'Crimson Text',serif"}}>{active.voc} · {active.world} · Lvl {active.level}</div>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {[{l:"Ventas",v:"12",i:"📦"},{l:"Activos",v:"2",i:"🏪"},{l:"GP vendidos",v:"340K",i:"💰"}].map(s=>(
+              <div key={s.l} style={{background:"#0E0D0A88",borderRadius:8,padding:"10px 6px",textAlign:"center"}}>
+                <div style={{fontSize:18}}>{s.i}</div>
+                <div style={{fontFamily:"monospace",fontSize:14,fontWeight:700,color:C.gold}}>{s.v}</div>
+                <div style={{fontSize:9,color:C.textMuted,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── MY CHARACTERS ── */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5}}>MIS PERSONAJES ({chars.length})</div>
+          <button onClick={()=>setAddMode(true)}
+            style={{background:`linear-gradient(135deg,#C9A22733,#8B691422)`,border:`1px solid ${C.borderGold}`,borderRadius:6,padding:"5px 12px",color:C.gold,fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:0.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            ➕ AGREGAR
+          </button>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          {chars.map((ch,i)=>{
+            const isActive = i===activeIdx;
+            const col = VOC_COLOR[ch.voc]||C.gold;
+            return(
+              <div key={i}
+                style={{background:isActive?"linear-gradient(135deg,#201A08,#1A1814)":C.bg1,border:`1.5px solid ${isActive?C.gold:C.border}`,borderRadius:11,padding:"13px 14px",marginBottom:8,transition:"all 0.2s",cursor:"pointer",position:"relative"}}
+                onClick={()=>setActiveIdx(i)}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  {/* voc icon with glow if active */}
+                  <div style={{fontSize:30,lineHeight:1,filter:isActive?`drop-shadow(0 0 8px ${col}88)`:"none",transition:"filter 0.2s"}}>
+                    {VOC_ICON[ch.voc]||"🧙"}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                      <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:14,color:isActive?C.goldText:C.text}}>{ch.name}</span>
+                      {ch.primary&&<span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:C.gold,border:`1px solid ${C.gold}55`,borderRadius:3,padding:"1px 5px"}}>PRINCIPAL</span>}
+                    </div>
+                    <div style={{fontSize:11,color:C.textSub}}>{ch.voc} · {ch.world} · Lvl {ch.level}</div>
+                  </div>
+                  {/* actions */}
+                  <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                    {!ch.primary&&(
+                      <button onClick={()=>setPrimary(i)}
+                        title="Hacer principal"
+                        style={{background:"none",border:`1px solid ${C.borderGold}`,borderRadius:5,padding:"3px 7px",color:C.gold,fontSize:10,cursor:"pointer",fontFamily:"'Cinzel',serif",letterSpacing:0.3,whiteSpace:"nowrap"}}>
+                        ★ Principal
+                      </button>
+                    )}
+                    {!ch.primary&&(
+                      <button onClick={()=>setConfirmDel(i)}
+                        title="Eliminar"
+                        style={{background:"none",border:`1px solid #6B1C1C`,borderRadius:5,padding:"3px 7px",color:C.red,fontSize:10,cursor:"pointer",fontFamily:"'Cinzel',serif"}}>
+                        ✕ Quitar
+                      </button>
+                    )}
+                    {ch.primary&&(
+                      <span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:C.textMuted,letterSpacing:0.3,textAlign:"right"}}>cuenta<br/>principal</span>
+                    )}
+                  </div>
+                </div>
+                {isActive&&(
+                  <div style={{position:"absolute",left:0,top:0,bottom:0,width:3,background:C.gold,borderRadius:"11px 0 0 11px"}}/>
+                )}
+              </div>
+            );
+          })}
+
+          {/* ADD CHAR CTA if only 1 char */}
+          {chars.length===1&&(
+            <div onClick={()=>setAddMode(true)}
+              style={{border:`1.5px dashed ${C.border}`,borderRadius:11,padding:"14px",textAlign:"center",cursor:"pointer",transition:"border-color 0.2s"}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=C.borderGold}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+              <div style={{fontSize:24,marginBottom:6}}>➕</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.textMuted,letterSpacing:0.5}}>Agregar personaje secundario</div>
+              <div style={{fontSize:11,color:C.textMuted,marginTop:3,fontFamily:"'Crimson Text',serif"}}>Gestiona varios mundos desde una sola cuenta</div>
+            </div>
+          )}
+        </div>
+
+        {/* ── ACTIVE CHAR LISTINGS ── */}
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:10}}>
+          LISTINGS DE {active.name.toUpperCase()}
+        </div>
+        {(myListings&&myListings.length ? myListings : MY_LIST).map((item,idx)=>(
+          <div key={item.id} style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,padding:14,marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:34}}>{item.img}</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.goldText,marginBottom:2}}>{item.name}</div>
+              <div style={{fontFamily:"monospace",fontSize:13,color:C.gold}}>{item.price.toLocaleString()} gp</div>
+              <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>👁 {item.views} · 💬 {item.offers} ofertas</div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <GoldBtn small full={false}>Editar</GoldBtn>
+            </div>
+          </div>
+        ))}
+        <div style={{height:20}}/>
+        <GoldBtn outline full={false} onClick={onLogout}>🚪 Cerrar Sesión</GoldBtn>
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+
+function SettingsScreen(){
+  const rows=[{i:"🔔",l:"Notificaciones",s:"Alertas de ofertas y chats"},{i:"🌍",l:"Servidor principal",s:"Antica"},{i:"🧝",l:"Vocación filtro",s:"Todas"},{i:"🔒",l:"Privacidad",s:"Perfil público"},{i:"📋",l:"Términos y condiciones",s:""},{i:"📧",l:"Soporte",s:"soporte@tibiamarket.app"}];
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="AJUSTES"/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:14}}>
+          {rows.map((r,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
+              <span style={{fontSize:20,width:28,textAlign:"center"}}>{r.i}</span>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{r.l}</div>
+                {r.s&&<div style={{fontSize:11,color:C.textMuted,marginTop:2}}>{r.s}</div>}
+              </div>
+              <span style={{color:C.textMuted,fontSize:18}}>›</span>
+            </div>
+          ))}
+        </div>
+        <div style={{textAlign:"center",fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1}}>TIBIA MARKET · v1.0.0</div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ════════════════════════════════════
+   TIBIA COINS MARKET
+   ════════════════════════════════════ */
+/* ── Exchange rates (base: USD) ── */
+const FX={USD:{sym:"$",label:"USD",rate:1,flag:"🇺🇸"},MXN:{sym:"$",label:"MXN",rate:17.2,flag:"🇲🇽"},BRL:{sym:"R$",label:"BRL",rate:5.75,flag:"🇧🇷"}};
+function fmtMoney(usd,cur){const r=FX[cur];return `${r.sym}${(usd*r.rate).toFixed(2)} ${r.label}`;}
+function fmtMoneyShort(usd,cur){
+  const r=FX[cur]; const v=usd*r.rate;
+  if(v>=1000) return `${r.sym}${(v/1000).toFixed(1)}k ${r.label}`;
+  return `${r.sym}${v.toFixed(2)} ${r.label}`;
+}
+
+/* TC listings — priceUSD = price per TC in USD */
+const DEMO_TC_LISTINGS=[
+  {id:1,seller:"Gorthax",    voc:"Knight",  world:"Refugia",lvl:450,amount:2500,priceUSD:0.048,neg:true, online:true,  rating:4.9,trades:87},
+  {id:2,seller:"Lyra",       voc:"Paladin", world:"Antica", lvl:310,amount:1000,priceUSD:0.045,neg:false,online:true,  rating:5.0,trades:124},
+  {id:3,seller:"Valdris",    voc:"Knight",  world:"Secura", lvl:240,amount:500, priceUSD:0.047,neg:true, online:false, rating:4.7,trades:31},
+  {id:4,seller:"Eiris",      voc:"Sorcerer",world:"Secura", lvl:97, amount:250, priceUSD:0.052,neg:true, online:false, rating:4.5,trades:12},
+  {id:5,seller:"Pyreth",     voc:"Monk",    world:"Antica", lvl:220,amount:5000,priceUSD:0.043,neg:true, online:true,  rating:4.8,trades:203},
+  {id:6,seller:"Khorath",    voc:"Paladin", world:"Bona",   lvl:155,amount:750, priceUSD:0.049,neg:false,online:false, rating:4.6,trades:45},
+];
+const VOC_ICON_TC={Knight:"⚔️",Paladin:"🏹","Elder Druid":"🌿","Master Sorcerer":"🔮",Sorcerer:"🔮",Monk:"🥷"};
+
+function TCCoin({size=18}){
+  return(
+    <svg width={size} height={size} viewBox="0 0 18 18">
+      <circle cx="9" cy="9" r="8.5" fill="#1A1400" stroke="#C9A020" strokeWidth="1"/>
+      <circle cx="9" cy="9" r="6" fill="#2A2000" stroke="#E0B830" strokeWidth="0.8"/>
+      <text x="9" y="12.5" textAnchor="middle" fontSize="8" fontWeight="bold" fontFamily="serif" fill="#F0C840">TC</text>
+    </svg>
+  );
+}
+
+/* ── CURRENCY SELECTOR ── */
+function CurrencyPicker({cur,setCur}){
+  return(
+    <div style={{display:"flex",gap:5,flexShrink:0}}>
+      {Object.entries(FX).map(([k,v])=>(
+        <button key={k} onClick={()=>setCur(k)}
+          style={{background:cur===k?"linear-gradient(135deg,#2A2000,#1A1400)":"transparent",border:`1px solid ${cur===k?C.gold:C.border}`,borderRadius:6,padding:"4px 8px",color:cur===k?C.gold:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:cur===k?700:400,cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",gap:3}}>
+          <span>{v.flag}</span><span>{v.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SellTCScreen({onBack}){
+  const [cur,setCur]=useState("MXN");
+  const [form,setForm]=useState({amount:"",price:"",server:"Antica",desc:"",neg:false,minBuy:""});
+  const [done,setDone]=useState(false);
+  const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const priceUSD = form.price ? parseFloat(form.price)/FX[cur].rate : 0;
+  const totalLocal = form.amount && form.price ? (parseInt(form.amount)*parseFloat(form.price)).toFixed(2) : "—";
+  const totalUSD   = form.amount && form.price ? (parseInt(form.amount)*priceUSD).toFixed(2) : "—";
+  const fx=FX[cur];
+  const inp={width:"100%",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"};
+
+  if(done) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="VENDER TIBIA COINS" onBack={onBack}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",animation:"fadeUp 0.4s ease"}}>
+        <div style={{width:72,height:72,borderRadius:"50%",background:"linear-gradient(135deg,#2A2000,#1A1400)",border:`2px solid ${C.gold}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16,boxShadow:`0 0 24px ${C.gold}44`}}>
+          <TCCoin size={40}/>
+        </div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:C.goldText,textAlign:"center",marginBottom:8}}>¡Oferta publicada!</div>
+        <div style={{fontFamily:"monospace",fontSize:16,color:C.gold,marginBottom:4}}>{form.amount} TC</div>
+        <div style={{fontSize:13,color:C.textSub,marginBottom:4,fontFamily:"'Crimson Text',serif",textAlign:"center"}}>
+          {fx.sym}{form.price} {fx.label}/TC
+        </div>
+        <div style={{fontFamily:"monospace",fontSize:15,color:C.goldText,marginBottom:24}}>
+          Total: {fx.sym}{totalLocal} {fx.label}
+        </div>
+        <div style={{fontSize:12,color:C.textMuted,marginBottom:24,textAlign:"center",fontFamily:"'Crimson Text',serif"}}>
+          Los compradores te contactarán por el chat para coordinar el pago y la entrega.
+        </div>
+        <GoldBtn onClick={onBack}>← PUBLICAR OTRA OFERTA</GoldBtn>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="VENDER TIBIA COINS" onBack={onBack}/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+
+        {/* TC info banner */}
+        <div style={{background:"linear-gradient(135deg,#201800,#141008)",border:`1px solid ${C.borderGold}`,borderRadius:12,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:14}}>
+          <TCCoin size={44}/>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.goldText,marginBottom:3}}>Vender Tibia Coins</div>
+            <div style={{fontSize:12,color:C.textSub,lineHeight:1.6}}>
+              Publica tu precio en moneda real. Los compradores te contactarán por chat para coordinar el pago y entrega en juego.
+            </div>
+          </div>
+        </div>
+
+        {/* currency picker */}
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:10}}>SELECCIONA TU MONEDA</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {Object.entries(FX).map(([k,v])=>(
+              <button key={k} onClick={()=>setCur(k)}
+                style={{background:cur===k?"linear-gradient(135deg,#2A2000,#1A1400)":C.bg0,border:`1.5px solid ${cur===k?C.gold:C.border}`,borderRadius:9,padding:"10px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",transition:"all 0.15s"}}>
+                <span style={{fontSize:22}}>{v.flag}</span>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:cur===k?700:400,color:cur===k?C.gold:C.textSub}}>{v.label}</span>
+                <span style={{fontSize:9,color:C.textMuted}}>{v.sym} {k==="MXN"?"Pesos":k==="BRL"?"Reales":"Dólares"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:14}}>DETALLES DE TU OFERTA</div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Cantidad de TCs a vender</div>
+            <input type="number" value={form.amount} onChange={e=>upd("amount",e.target.value)} placeholder="ej. 1000" style={inp}/>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Precio por TC ({fx.sym} {fx.label})</div>
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMuted,pointerEvents:"none",fontFamily:"monospace"}}>{fx.sym}</span>
+              <input type="number" step="0.01" value={form.price} onChange={e=>upd("price",e.target.value)} placeholder={cur==="MXN"?"ej. 0.85":cur==="BRL"?"ej. 0.28":"ej. 0.05"}
+                style={{...inp,paddingLeft:26}}/>
+            </div>
+            {form.price&&<div style={{fontSize:10,color:C.textMuted,marginTop:4}}>≈ ${(priceUSD).toFixed(4)} USD por TC</div>}
+          </div>
+
+          {/* total calculated */}
+          {form.amount&&form.price&&(
+            <div style={{background:"#141008",border:`1px solid ${C.borderGold}`,borderRadius:8,padding:"12px 14px",marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:0.5}}>TOTAL EN {fx.label}</span>
+                <span style={{fontFamily:"monospace",fontSize:17,fontWeight:700,color:C.gold}}>{fx.sym}{totalLocal}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:C.textMuted,letterSpacing:0.3}}>EQUIVALENTE USD</span>
+                <span style={{fontFamily:"monospace",fontSize:12,color:C.textMuted}}>${totalUSD} USD</span>
+              </div>
+            </div>
+          )}
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Compra mínima (TCs)</div>
+            <input type="number" value={form.minBuy} onChange={e=>upd("minBuy",e.target.value)} placeholder="ej. 100 (opcional)" style={inp}/>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Servidor</div>
+            <select value={form.server} onChange={e=>upd("server",e.target.value)} style={inp}>
+              {["Antica","Secura","Refugia","Bona","Gladera","Harmonia","Luminera","Vunira","Peloria"].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Notas (método de pago, horario...)</div>
+            <textarea value={form.desc} onChange={e=>upd("desc",e.target.value)} placeholder="ej. Acepto transferencia SPEI / Pix / PayPal..." rows={2} style={{...inp,resize:"none"}}/>
+          </div>
+
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+            <input type="checkbox" checked={form.neg} onChange={e=>upd("neg",e.target.checked)} style={{accentColor:C.gold,width:16,height:16}}/>
+            <span style={{fontSize:13,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>Precio negociable</span>
+          </label>
+        </div>
+
+        <div style={{background:"#0C1A0C",border:"1px solid #2A5A2A",borderRadius:10,padding:"12px 14px",marginBottom:16,display:"flex",gap:10}}>
+          <span style={{fontSize:18,flexShrink:0}}>🛡️</span>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.green,marginBottom:3,letterSpacing:0.3}}>INTERCAMBIO P2P SEGURO</div>
+            <div style={{fontSize:12,color:"#6AB06A",lineHeight:1.6,fontFamily:"'Crimson Text',serif"}}>
+              Tibia Market solo conecta compradores y vendedores. El pago y la entrega ocurren directamente entre usuarios. Revisa siempre la reputación antes de operar.
+            </div>
+          </div>
+        </div>
+
+        <GoldBtn onClick={()=>form.amount&&form.price&&setDone(true)} disabled={!form.amount||!form.price}>
+          💎 PUBLICAR OFERTA DE TCs
+        </GoldBtn>
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+
+function TCMarketScreen({onBack,onChat,onSell,tcListings,loading}){
+  const [cur,setCur]=useState("MXN");
+  const [search,setSearch]=useState("");
+  const [sortBy,setSortBy]=useState("price");
+  const [worldFilter,setWorldFilter]=useState("Todos");
+  const worlds=["Todos","Antica","Secura","Refugia","Bona","Gladera"];
+  const fx=FX[cur];
+
+  const listings = tcListings?.length ? tcListings : DEMO_TC_LISTINGS;
+  const sorted=[...listings]
+    .filter(l=>worldFilter==="Todos"||l.world===worldFilter)
+    .filter(l=>l.seller.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>sortBy==="price"?a.priceUSD-b.priceUSD:sortBy==="amount"?b.amount-a.amount:b.rating-a.rating);
+
+  const best=sorted[0];
+  const avgUSD=listings.reduce((a,l)=>a+l.priceUSD,0)/Math.max(1,(tcListings||DEMO_TC_LISTINGS).length);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      {/* header */}
+      <div style={{background:"#0E0D0A",borderBottom:"1px solid #2A2418",padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={onBack} style={{background:"none",border:"none",color:C.gold,fontSize:22,padding:0,lineHeight:1}}>←</button>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <TCCoin size={20}/>
+            <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,color:C.goldText,letterSpacing:1}}>TIBIA COINS</span>
+          </div>
+        </div>
+        <button onClick={onSell}
+          style={{background:`linear-gradient(135deg,${C.gold},${C.goldD})`,border:"none",borderRadius:7,padding:"6px 13px",color:"#1A1000",fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          + VENDER
+        </button>
+      </div>
+
+      <div className="scroll-panel" style={{flex:1,padding:"12px 14px 8px",minHeight:0}}>
+
+        {/* currency picker */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1}}>VER PRECIOS EN</div>
+          <CurrencyPicker cur={cur} setCur={setCur}/>
+        </div>
+
+        {/* stats */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+          {[
+            {l:"Precio prom.",v:fmtMoneyShort(avgUSD,cur),i:"📊",sub:"por TC"},
+            {l:"Mejor precio",v:best?fmtMoneyShort(best.priceUSD,cur):"—",i:"💹",sub:"por TC"},
+            {l:"Vendedores",  v:(tcListings||DEMO_TC_LISTINGS).length,i:"👥",sub:"activos"},
+          ].map(s=>(
+            <div key={s.l} style={{background:`linear-gradient(135deg,#1A1408,${C.bg1})`,border:`1px solid ${C.borderGold}`,borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
+              <div style={{fontSize:17,marginBottom:3}}>{s.i}</div>
+              <div style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:C.gold,lineHeight:1.1}}>{s.v}</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:7,color:C.textMuted,marginTop:3,letterSpacing:0.3}}>{s.l}</div>
+              <div style={{fontSize:8,color:C.textMuted}}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* search */}
+        <div style={{position:"relative",marginBottom:8}}>
+          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.textMuted,pointerEvents:"none"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar vendedor..."
+            style={{width:"100%",background:C.bg1,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px 9px 30px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:14,outline:"none"}}/>
+        </div>
+
+        {/* world filter */}
+        <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",scrollbarWidth:"none"}}>
+          {worlds.map(w=>(
+            <button key={w} onClick={()=>setWorldFilter(w)}
+              style={{background:worldFilter===w?C.gold:C.bg1,border:`1px solid ${worldFilter===w?C.gold:C.border}`,color:worldFilter===w?"#1A1200":C.textSub,padding:"4px 12px",borderRadius:16,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:worldFilter===w?700:400,flexShrink:0,transition:"all 0.15s"}}>
+              {w}
+            </button>
+          ))}
+        </div>
+
+        {/* sort */}
+        <div style={{display:"flex",gap:5,marginBottom:12,flexWrap:"wrap"}}>
+          {[{k:"price",l:"Menor precio"},{k:"amount",l:"Mayor cantidad"},{k:"rating",l:"Mejor reputación"}].map(s=>(
+            <button key={s.k} onClick={()=>setSortBy(s.k)}
+              style={{background:sortBy===s.k?"#201A08":C.bg1,border:`1px solid ${sortBy===s.k?C.borderGold:C.border}`,color:sortBy===s.k?C.gold:C.textMuted,padding:"4px 10px",borderRadius:6,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:sortBy===s.k?700:400,cursor:"pointer",transition:"all 0.15s",flexShrink:0}}>
+              {s.l}
+            </button>
+          ))}
+        </div>
+
+        {/* listings */}
+        {sorted.map((l,i)=>{
+          const priceLocal  = (l.priceUSD*fx.rate).toFixed(cur==="USD"?4:2);
+          const totalLocal  = (l.amount*l.priceUSD*fx.rate);
+          const totalStr    = totalLocal>=1000?`${fx.sym}${(totalLocal/1000).toFixed(1)}k`:`${fx.sym}${totalLocal.toFixed(2)}`;
+          const isBest      = i===0&&worldFilter==="Todos";
+          return(
+            <div key={l.id} style={{background:isBest?`linear-gradient(135deg,#201A06,#141008)`:"#141210",border:`1.5px solid ${isBest?C.gold:C.border}`,borderRadius:12,padding:"14px",marginBottom:10,position:"relative",overflow:"hidden"}}>
+
+              {isBest&&<div style={{position:"absolute",top:8,right:10}}><span style={{background:`${C.gold}22`,color:C.gold,border:`1px solid ${C.gold}55`,padding:"2px 8px",borderRadius:4,fontSize:9,fontFamily:"'Cinzel',serif",fontWeight:700}}>MEJOR PRECIO</span></div>}
+
+              <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12}}>
+                <div style={{width:44,height:44,borderRadius:"50%",background:"linear-gradient(135deg,#2A2010,#141008)",border:`1.5px solid ${l.online?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,position:"relative",flexShrink:0}}>
+                  {VOC_ICON_TC[l.voc]||"🧙"}
+                  {l.online&&<div style={{position:"absolute",bottom:1,right:1,width:10,height:10,borderRadius:"50%",background:C.green,border:`1.5px solid #141210`}}/>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
+                    <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:14,color:C.goldText}}>{l.seller}</span>
+                    <span style={{fontSize:10,color:l.online?C.green:C.textMuted}}>{l.online?"● En línea":"○ Ausente"}</span>
+                  </div>
+                  <div style={{fontSize:11,color:C.textSub,marginBottom:3}}>{l.voc} · {l.world} · Lvl {l.lvl}</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:C.textMuted}}>⭐ {l.rating} ({l.trades} trades)</span>
+                    {l.neg&&<span style={{fontSize:9,color:C.green}}>✓ Negociable</span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* price grid */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
+                <div style={{background:"#0E0D0A",borderRadius:8,padding:"8px 6px",textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:7,color:C.textMuted,letterSpacing:0.3,marginBottom:3}}>PRECIO/TC</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:3}}>
+                    <TCCoin size={10}/>
+                    <span style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.gold}}>{priceLocal}</span>
+                  </div>
+                  <div style={{fontSize:8,color:C.textMuted}}>{fx.label}</div>
+                </div>
+                <div style={{background:"#0E0D0A",borderRadius:8,padding:"8px 6px",textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:7,color:C.textMuted,letterSpacing:0.3,marginBottom:3}}>CANTIDAD</div>
+                  <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.text}}>{l.amount.toLocaleString()}</div>
+                  <div style={{fontSize:8,color:C.textMuted}}>TCs</div>
+                </div>
+                <div style={{background:"#0E0D0A",borderRadius:8,padding:"8px 6px",textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:7,color:C.textMuted,letterSpacing:0.3,marginBottom:3}}>TOTAL</div>
+                  <div style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:C.textSub}}>{totalStr}</div>
+                  <div style={{fontSize:8,color:C.textMuted}}>{fx.label}</div>
+                </div>
+              </div>
+
+              <GoldBtn onClick={()=>onChat({seller:l.seller,amount:l.amount,priceUSD:l.priceUSD,img:"💎",name:`${l.amount} Tibia Coins`,price:l.amount})} small full={false}>
+                💬 Contactar a {l.seller}
+              </GoldBtn>
+            </div>
+          );
+        })}
+
+        {sorted.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:13}}>Sin vendedores en este servidor</div>}
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+/* ════════════ END TC MARKET ════════════ */
+
+
+
+/* ════════════════════════════════════
+   BAZAR DE PERSONAJES
+   ════════════════════════════════════ */
+
+const DEMO_CHAR_LISTINGS=[
+  {
+    id:1, name:"Zyreth",  voc:"Elder Druid", lvl:312, world:"Antica",
+    priceTC:85000,
+    skills:{magic:115,fist:20,axe:15,club:15,sword:18,dist:20,shield:30,fish:10},
+    highlights:["Full Bestiary","Prey Wildcards x3","Char bien equipado","20+ Imbuements listos"],
+    bazaarLink:"https://www.tibia.com/charactertrade/?subtopic=currentauctions&page=details&auctionid=12345",
+    seller:"Mackonee129", sellerRating:4.9, sellerTrades:47,
+    online:true, outfits:34, mounts:28, titles:12, achievementPoints:4820,
+    description:"Personaje con años de progreso. Bestiary al 100% en la mayoría de criaturas. Incluye todos los items equipados en las fotos.",
+    images:[], verified:true, createdAt:"2024-01-15",
+  },
+  {
+    id:2, name:"Valdris", voc:"Knight",      lvl:240, world:"Secura",
+    priceTC:32000,
+    skills:{magic:10,fist:35,axe:85,club:80,sword:90,dist:40,shield:100,fish:15},
+    highlights:["Shield 100","Sword 90","Buen equipo PvP","Char PvP listo"],
+    bazaarLink:"https://www.tibia.com/charactertrade/?subtopic=currentauctions&page=details&auctionid=23456",
+    seller:"Gorthax", sellerRating:4.8, sellerTrades:203,
+    online:false, outfits:18, mounts:15, titles:6, achievementPoints:2100,
+    description:"Knight enfocado en PvP. Skills altísimos de sword y shield. Equipo incluido.",
+    images:[], verified:true, createdAt:"2024-01-18",
+  },
+  {
+    id:3, name:"Lyra",    voc:"Paladin",     lvl:310, world:"Refugia",
+    priceTC:120000,
+    skills:{magic:50,fist:30,axe:20,club:20,sword:20,dist:110,shield:75,fish:30},
+    highlights:["Distance 110","Magic 50","Full Falcon set","Bestiary avanzado"],
+    bazaarLink:"https://www.tibia.com/charactertrade/?subtopic=currentauctions&page=details&auctionid=34567",
+    seller:"Khorath", sellerRating:4.6, sellerTrades:45,
+    online:true, outfits:42, mounts:35, titles:18, achievementPoints:6200,
+    description:"Paladin de alto nivel con outfits raros y montures exclusivas. El mejor del servidor.",
+    images:[], verified:true, createdAt:"2024-01-20",
+  },
+];
+
+const VOC_COLOR_B = {
+  Knight:"#60A5FA", Paladin:"#4ADE80",
+  "Elder Druid":"#34D399", "Master Sorcerer":"#A78BFA",
+  Sorcerer:"#A78BFA", Monk:"#F59E0B",
+};
+const VOC_ICON_B  = {
+  Knight:"⚔️", Paladin:"🏹",
+  "Elder Druid":"🌿", "Master Sorcerer":"🔮",
+  Sorcerer:"🔮", Monk:"🥷",
+};
+
+/* ── SELL CHARACTER SCREEN ── */
+function SellCharScreen({onBack}){
+  const [step,setStep]=useState(1); // 1=datos, 2=link+precio, 3=éxito
+  const [form,setForm]=useState({
+    charName:"", voc:"Knight", lvl:"", world:"Antica",
+    price:"",
+    bazaarLink:"", description:"",
+    sword:"", axe:"", club:"", dist:"", shield:"", magic:"", fish:"",
+  });
+  const [linkErr,setLinkErr]=useState("");
+  const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  function validateLink(url){
+    if(!url.includes("tibia.com/charactertrade")) {
+      setLinkErr("El link debe ser del Bazar oficial de Tibia (tibia.com/charactertrade)");
+      return false;
+    }
+    setLinkErr("");
+    return true;
+  }
+
+  const inp={width:"100%",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:15,outline:"none"};
+  const servers=["Antica","Secura","Refugia","Bona","Gladera","Harmonia","Luminera"];
+  const vocs=["Knight","Paladin","Elder Druid","Master Sorcerer","Monk"];
+
+  if(step===3) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="VENDER PERSONAJE" onBack={onBack}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 28px",animation:"fadeUp 0.4s ease"}}>
+        <div style={{fontSize:64,marginBottom:16}}>🏆</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:C.goldText,textAlign:"center",marginBottom:8}}>¡Personaje publicado!</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.gold,marginBottom:4}}>{form.charName}</div>
+        <div style={{fontSize:13,color:C.textSub,marginBottom:6}}>{VOC_ICON_B[form.voc]} {form.voc} · Lvl {form.lvl} · {form.world}</div>
+        <div style={{fontFamily:"monospace",fontSize:16,color:C.goldText,marginBottom:24}}>{FX_SYM[form.currency]}{parseFloat(form.price).toLocaleString()} {form.currency}</div>
+        <div style={{fontSize:13,color:C.textMuted,textAlign:"center",lineHeight:1.7,marginBottom:28,fontFamily:"'Crimson Text',serif"}}>
+          Los interesados podrán ver tu personaje y acceder directamente al Bazar oficial de Tibia desde la app.
+        </div>
+        <GoldBtn onClick={onBack}>← PUBLICAR OTRO PERSONAJE</GoldBtn>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="VENDER PERSONAJE" onBack={onBack}/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+
+        {/* steps indicator */}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:16}}>
+          {[{n:1,l:"Personaje"},{n:2,l:"Precio & Link"}].map((s,i)=>(
+            <React.Fragment key={s.n}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{width:22,height:22,borderRadius:"50%",background:step>=s.n?"linear-gradient(135deg,#D4A830,#8B6914)":C.bg1,border:`1.5px solid ${step>=s.n?C.gold:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,color:step>=s.n?"#1A1000":C.textMuted}}>
+                  {step>s.n?"✓":s.n}
+                </div>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:9,color:step>=s.n?C.gold:C.textMuted,letterSpacing:0.3}}>{s.l}</span>
+              </div>
+              {i===0&&<div style={{flex:1,height:"1px",background:step>1?C.gold:C.border}}/>}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* STEP 1 — character data */}
+        {step===1&&(
+          <div style={{animation:"slideLeft 0.3s ease"}}>
+            <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:14}}>DATOS DEL PERSONAJE</div>
+
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Nombre exacto del personaje</div>
+                <input value={form.charName} onChange={e=>upd("charName",e.target.value)} placeholder="ej. Zyreth" style={inp}/>
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:12,color:C.textSub,marginBottom:6,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Vocación</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                  {vocs.map(v=>(
+                    <button key={v} onClick={()=>upd("voc",v)}
+                      style={{background:form.voc===v?"linear-gradient(135deg,#2A2010,#1A1808)":C.bg0,border:`1.5px solid ${form.voc===v?C.gold:C.border}`,borderRadius:8,padding:"9px 6px",color:form.voc===v?C.gold:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:form.voc===v?700:400,cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+                      {VOC_ICON_B[v]} {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Nivel</div>
+                  <input type="number" value={form.lvl} onChange={e=>upd("lvl",e.target.value)} placeholder="ej. 312" style={inp}/>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.textSub,marginBottom:5,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Servidor</div>
+                  <select value={form.world} onChange={e=>upd("world",e.target.value)} style={inp}>
+                    {servers.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* skills */}
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1,marginBottom:10}}>SKILLS PRINCIPALES</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {[
+                  {k:"sword",l:"Sword"},  {k:"axe",l:"Axe"},
+                  {k:"club",l:"Club"},    {k:"dist",l:"Distance"},
+                  {k:"shield",l:"Shield"},{k:"magic",l:"Magic Lvl"},
+                ].map(f=>(
+                  <div key={f.k}>
+                    <div style={{fontSize:11,color:C.textMuted,marginBottom:4,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>{f.l}</div>
+                    <input type="number" value={form[f.k]} onChange={e=>upd(f.k,e.target.value)} placeholder="0"
+                      style={{...inp,padding:"8px 10px",fontSize:14,textAlign:"center"}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:14}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:10}}>DESCRIPCIÓN</div>
+              <textarea value={form.description} onChange={e=>upd("description",e.target.value)}
+                placeholder="Describe tu personaje: outfits, mounts, bestiary, equipo incluido..." rows={4}
+                style={{...inp,resize:"none"}}/>
+            </div>
+
+            <GoldBtn onClick={()=>form.charName&&form.lvl?setStep(2):null} disabled={!form.charName||!form.lvl}>
+              SIGUIENTE →
+            </GoldBtn>
+          </div>
+        )}
+
+        {/* STEP 2 — price + bazaar link */}
+        {step===2&&(
+          <div style={{animation:"slideLeft 0.3s ease"}}>
+            <div style={{background:"linear-gradient(135deg,#1A1400,#0E0C00)",border:`1.5px solid ${C.borderGold}`,borderRadius:12,padding:16,marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                <TCCoin size={22}/>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,color:C.goldText,letterSpacing:1}}>PRECIO EN TIBIA COINS</div>
+              </div>
+
+              <div style={{background:"#0C0A00",border:"1px solid #2A2000",borderRadius:8,padding:"10px 12px",marginBottom:14,fontSize:12,color:C.textSub,lineHeight:1.6,fontFamily:"'Crimson Text',serif"}}>
+                💡 El Bazar oficial de Tibia solo acepta <span style={{color:C.gold,fontWeight:600}}>Tibia Coins</span> como forma de pago. Ingresa el monto de TCs que pides por tu personaje.
+              </div>
+
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:12,color:C.textSub,marginBottom:6,fontFamily:"'Cinzel',serif",letterSpacing:0.3}}>Monto de Tibia Coins</div>
+                <div style={{position:"relative"}}>
+                  <div style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}>
+                    <TCCoin size={18}/>
+                  </div>
+                  <input type="number" value={form.price} onChange={e=>upd("price",e.target.value)}
+                    placeholder="ej. 50000" style={{...inp,paddingLeft:34}}/>
+                </div>
+              </div>
+
+              {form.price&&(
+                <div style={{background:"#141008",border:`1px solid ${C.borderGold}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+                  <TCCoin size={16}/>
+                  <span style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:C.gold}}>{parseInt(form.price).toLocaleString()} TC</span>
+                </div>
+              )}
+            </div>
+
+            {/* BAZAAR LINK — the key feature */}
+            <div style={{background:"linear-gradient(135deg,#1A1408,#141008)",border:`1.5px solid ${C.borderGold}`,borderRadius:12,padding:16,marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:20}}>🏰</span>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:C.goldText}}>Link del Bazar Oficial de Tibia</div>
+              </div>
+              <div style={{fontSize:12,color:C.textSub,lineHeight:1.6,marginBottom:12,fontFamily:"'Crimson Text',serif"}}>
+                Ve al <span style={{color:C.gold}}>Bazar de Tibia</span> (tibia.com/charactertrade), busca tu personaje en subasta y copia el link de la página de detalles.
+              </div>
+              <input
+                value={form.bazaarLink}
+                onChange={e=>{upd("bazaarLink",e.target.value);setLinkErr("");}}
+                onBlur={()=>form.bazaarLink&&validateLink(form.bazaarLink)}
+                placeholder="https://www.tibia.com/charactertrade/?subtopic=currentauctions&page=details&auctionid=..."
+                style={{...inp,fontSize:12,borderColor:linkErr?C.red:form.bazaarLink&&!linkErr?C.green:C.border}}
+              />
+              {linkErr&&<div style={{fontSize:11,color:C.red,marginTop:5}}>⚠️ {linkErr}</div>}
+              {form.bazaarLink&&!linkErr&&<div style={{fontSize:11,color:C.green,marginTop:5}}>✓ Link válido del Bazar oficial</div>}
+
+              <div style={{background:"#0C1A0C",border:"1px solid #2A5A2A",borderRadius:8,padding:"10px 12px",marginTop:12,fontSize:12,color:"#6AB06A",fontFamily:"'Crimson Text',serif",lineHeight:1.6}}>
+                🛡️ La transacción y subasta se gestionan directamente en la plataforma oficial de CipSoft. Tibia Market solo conecta compradores con el link.
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:10}}>
+              <GoldBtn outline onClick={()=>setStep(1)} full={false}>← Atrás</GoldBtn>
+              <div style={{flex:1}}>
+                <GoldBtn onClick={()=>{if(form.price&&form.bazaarLink&&validateLink(form.bazaarLink))setStep(3);}} disabled={!form.price||!form.bazaarLink}>
+                  🏆 PUBLICAR PERSONAJE
+                </GoldBtn>
+              </div>
+            </div>
+          </div>
+        )}
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+
+/* ── BAZAAR MAIN SCREEN ── */
+function BazaarScreen({onBack,onSell,onChat,charListings,loading}){
+  const [search,setSearch]=useState("");
+  const [vocFilter,setVocFilter]=useState("Todos");
+  const [worldFilter,setWorldFilter]=useState("Todos");
+  const [sortBy,setSortBy]=useState("lvl");
+  const [detailId,setDetailId]=useState(null);
+  const worlds=["Todos","Antica","Secura","Refugia","Bona"];
+  const vocs=["Todos","Knight","Paladin","Elder Druid","Master Sorcerer","Monk"];
+  const allChars = charListings?.length ? charListings : DEMO_CHAR_LISTINGS;
+  const filtered=[...allChars]
+    .filter(l=>vocFilter==="Todos"||l.voc===vocFilter)
+    .filter(l=>worldFilter==="Todos"||l.world===worldFilter)
+    .filter(l=>l.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>sortBy==="lvl"?b.lvl-a.lvl:sortBy==="price"?a.price-b.price:b.sellerRating-a.sellerRating);
+
+  const detail=(charListings?.length ? charListings : DEMO_CHAR_LISTINGS).find(l=>l.id===detailId);
+
+  /* ── DETAIL VIEW ── */
+  if(detail) return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <TopBar title="DETALLE DEL PERSONAJE" onBack={()=>setDetailId(null)}/>
+      <div className="scroll-panel" style={{flex:1,padding:"14px",minHeight:0}}>
+
+        {/* hero card */}
+        <div style={{background:`linear-gradient(135deg,#201A08,${C.bg1})`,border:`2px solid ${VOC_COLOR_B[detail.voc]}66`,borderRadius:14,padding:"20px 18px",marginBottom:14,textAlign:"center",position:"relative"}}>
+          {detail.verified&&<div style={{position:"absolute",top:12,right:12}}><Badge text="✓ Verificado" color={C.green}/></div>}
+          <div style={{fontSize:52,marginBottom:8,filter:`drop-shadow(0 0 16px ${VOC_COLOR_B[detail.voc]}88)`}}>
+            {VOC_ICON_B[detail.voc]}
+          </div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.goldText,marginBottom:4}}>{detail.name}</div>
+          <div style={{fontSize:13,color:C.textSub,marginBottom:12}}>{detail.voc} · {detail.world} · Nivel {detail.lvl}</div>
+          <div style={{display:"flex",alignItems:"center",gap:10,justifyContent:"center",marginBottom:4}}>
+            <TCCoin size={26}/>
+            <span style={{fontFamily:"monospace",fontSize:24,fontWeight:700,color:C.gold}}>{detail.priceTC.toLocaleString()} TC</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"center",gap:8,flexWrap:"wrap",marginTop:6}}>
+            <Badge text={`🏆 ${detail.titles} Títulos`}         color={C.gold}/>
+            <Badge text={`🧥 ${detail.outfits} Outfits`}        color={C.purple}/>
+            <Badge text={`🐴 ${detail.mounts} Montures`}        color={C.blue}/>
+            <Badge text={`⭐ ${detail.achievementPoints} pts`}  color={C.green}/>
+          </div>
+        </div>
+
+        {/* skills */}
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:12}}>SKILLS</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {Object.entries(detail.skills).map(([k,v])=>{
+              const labels={magic:"Magic",fist:"Fist",axe:"Axe",club:"Club",sword:"Sword",dist:"Distance",shield:"Shield",fish:"Fishing"};
+              const pct=Math.min(100,Math.round((v/130)*100));
+              const col=v>=100?C.gold:v>=80?C.green:v>=60?C.blue:C.textSub;
+              return(
+                <div key={k} style={{background:C.bg0,borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:8,color:C.textMuted,letterSpacing:0.3,marginBottom:4}}>{labels[k]||k}</div>
+                  <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:col}}>{v}</div>
+                  <div style={{height:3,background:C.border,borderRadius:2,marginTop:4}}>
+                    <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:2,transition:"width 0.3s"}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* highlights */}
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:10}}>PUNTOS DESTACADOS</div>
+          {detail.highlights.map((h,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+              <span style={{color:C.gold,fontSize:12}}>✦</span>
+              <span style={{fontSize:13,color:C.text,fontFamily:"'Crimson Text',serif"}}>{h}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* description */}
+        {detail.description&&(
+          <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:14}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.textMuted,letterSpacing:1.5,marginBottom:8}}>DESCRIPCIÓN</div>
+            <div style={{fontSize:14,color:C.text,lineHeight:1.7,fontFamily:"'Crimson Text',serif"}}>{detail.description}</div>
+          </div>
+        )}
+
+        {/* seller info */}
+        <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+          <div style={{fontSize:30}}>🧙</div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.goldText}}>{detail.seller}</div>
+            <div style={{fontSize:11,color:C.textSub}}>⭐ {detail.sellerRating} · {detail.sellerTrades} trades</div>
+          </div>
+          {detail.online&&<Badge text="● En línea" color={C.green}/>}
+        </div>
+
+        {/* MAIN ACTION: go to Tibia Bazaar */}
+        <a href={detail.bazaarLink} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",display:"block",marginBottom:10}}>
+          <div style={{background:`linear-gradient(135deg,#1A1408,#0E0C00)`,border:`2px solid ${C.gold}`,borderRadius:10,padding:"14px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer"}}>
+            <span style={{fontSize:28}}>🏰</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,color:C.goldText,marginBottom:2}}>Ver en el Bazar Oficial de Tibia</div>
+              <div style={{fontSize:11,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>Se abrirá la subasta oficial en tibia.com</div>
+            </div>
+            <span style={{color:C.gold,fontSize:18}}>↗</span>
+          </div>
+        </a>
+
+        <GoldBtn onClick={()=>onChat({seller:detail.seller,img:"🏆",name:`Personaje: ${detail.name}`,price:detail.price})}>
+          💬 Contactar al vendedor
+        </GoldBtn>
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+
+  /* ── LIST VIEW ── */
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{background:"#0E0D0A",borderBottom:"1px solid #2A2418",padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={onBack} style={{background:"none",border:"none",color:C.gold,fontSize:22,padding:0,lineHeight:1}}>←</button>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:20}}>🏆</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,color:C.goldText,letterSpacing:1}}>BAZAR DE PERSONAJES</span>
+          </div>
+        </div>
+        <button onClick={onSell}
+          style={{background:`linear-gradient(135deg,${C.gold},${C.goldD})`,border:"none",borderRadius:7,padding:"6px 13px",color:"#1A1000",fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          + VENDER
+        </button>
+      </div>
+
+      <div className="scroll-panel" style={{flex:1,padding:"12px 14px 8px",minHeight:0}}>
+
+        {/* stats banner */}
+        <div style={{background:"linear-gradient(135deg,#201A08,#141008)",border:`1px solid ${C.borderGold}`,borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:14}}>
+          <span style={{fontSize:36}}>🏆</span>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.gold,letterSpacing:1,marginBottom:2}}>PERSONAJES EN SUBASTA</div>
+            <div style={{fontSize:13,color:C.textSub,fontFamily:"'Crimson Text',serif"}}>
+              {(charListings||DEMO_CHAR_LISTINGS).length} personajes disponibles · Los links redirigen al Bazar oficial de Tibia
+            </div>
+          </div>
+        </div>
+
+        {/* search */}
+        <div style={{position:"relative",marginBottom:8}}>
+          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.textMuted,pointerEvents:"none"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar personaje..."
+            style={{width:"100%",background:C.bg1,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px 9px 30px",color:C.text,fontFamily:"'Crimson Text',serif",fontSize:14,outline:"none"}}/>
+        </div>
+
+        {/* voc filter */}
+        <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",scrollbarWidth:"none"}}>
+          {vocs.map(v=>(
+            <button key={v} onClick={()=>setVocFilter(v)}
+              style={{background:vocFilter===v?C.gold:C.bg1,border:`1px solid ${vocFilter===v?C.gold:C.border}`,color:vocFilter===v?"#1A1200":C.textSub,padding:"4px 10px",borderRadius:16,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:vocFilter===v?700:400,flexShrink:0,transition:"all 0.15s"}}>
+              {v==="Todos"?v:`${VOC_ICON_B[v]} ${v}`}
+            </button>
+          ))}
+        </div>
+
+        {/* sort */}
+        <div style={{display:"flex",gap:6,marginBottom:12}}>
+          {[{k:"lvl",l:"Mayor nivel"},{k:"price",l:"Menor precio"},{k:"rating",l:"Mejor vendedor"}].map(s=>(
+            <button key={s.k} onClick={()=>setSortBy(s.k)}
+              style={{background:sortBy===s.k?"#201A08":C.bg1,border:`1px solid ${sortBy===s.k?C.borderGold:C.border}`,color:sortBy===s.k?C.gold:C.textMuted,padding:"4px 10px",borderRadius:6,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:sortBy===s.k?700:400,cursor:"pointer",transition:"all 0.15s",flexShrink:0}}>
+              {s.l}
+            </button>
+          ))}
+        </div>
+
+        {/* listings */}
+        {filtered.map(l=>(
+          <div key={l.id} onClick={()=>setDetailId(l.id)}
+            style={{background:C.bg1,border:`1.5px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",transition:"all 0.18s"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor=VOC_COLOR_B[l.voc]||C.gold;e.currentTarget.style.background=C.bg3;}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.bg1;}}>
+
+            <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+              {/* voc badge */}
+              <div style={{width:50,height:50,borderRadius:10,background:"linear-gradient(135deg,#201A08,#141008)",border:`1.5px solid ${VOC_COLOR_B[l.voc]||C.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>
+                {VOC_ICON_B[l.voc]}
+              </div>
+
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
+                  <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,color:C.goldText}}>{l.name}</span>
+                  {l.verified&&<Badge text="✓" color={C.green}/>}
+                  {l.online&&<span style={{fontSize:10,color:C.green}}>● En línea</span>}
+                </div>
+                <div style={{fontSize:11,color:C.textSub,marginBottom:6}}>{l.voc} · {l.world} · Nivel {l.lvl}</div>
+
+                {/* key skills pills */}
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+                  {Object.entries(l.skills).filter(([k,v])=>v>=80).map(([k,v])=>(
+                    <span key={k} style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:4,padding:"1px 7px",fontFamily:"monospace",fontSize:10,color:v>=100?C.gold:C.text}}>
+                      {k.charAt(0).toUpperCase()+k.slice(1)} {v}
+                    </span>
+                  ))}
+                </div>
+
+                {/* highlights */}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {l.highlights.slice(0,2).map((h,i)=>(
+                    <span key={i} style={{fontSize:10,color:C.textMuted,fontFamily:"'Crimson Text',serif"}}>✦ {h}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <TCCoin size={16}/>
+                <span style={{fontFamily:"monospace",fontSize:17,fontWeight:700,color:C.gold}}>{l.priceTC.toLocaleString()} TC</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <a href={l.bazaarLink} target="_blank" rel="noopener noreferrer"
+                  onClick={e=>e.stopPropagation()}
+                  style={{background:"linear-gradient(135deg,#1A1408,#0E0C00)",border:`1px solid ${C.borderGold}`,borderRadius:6,padding:"5px 10px",color:C.gold,fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:700,cursor:"pointer",textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
+                  🏰 Bazar ↗
+                </a>
+                <span style={{color:C.borderGold,fontSize:18}}>›</span>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {filtered.length===0&&(
+          <div style={{textAlign:"center",padding:"40px 20px",color:C.textMuted,fontFamily:"'Cinzel',serif",fontSize:13}}>
+            Sin personajes disponibles
+          </div>
+        )}
+        <div style={{height:8}}/>
+      </div>
+    </div>
+  );
+}
+/* ════════════ END BAZAR ════════════ */
+
+
+/* ══════════════ ROOT ══════════════ */
+
+/* ── Loading screen ── */
+function LoadingScreen({message="Cargando..."}){
+  return(
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:C.bg0,gap:16}}>
+      <div style={{fontSize:48,animation:"pulse 1.5s infinite"}}>⚔️</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.textSub,letterSpacing:1}}>{message}</div>
+    </div>
+  );
+}
+
+/* ── Empty state ── */
+function EmptyState({icon="📦",title,sub,action}){
+  return(
+    <div style={{textAlign:"center",padding:"48px 24px"}}>
+      <div style={{fontSize:48,marginBottom:14,opacity:0.5}}>{icon}</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.textSub,marginBottom:8}}>{title}</div>
+      {sub&&<div style={{fontSize:13,color:C.textMuted,lineHeight:1.6,fontFamily:"'Crimson Text',serif"}}>{sub}</div>}
+      {action&&<div style={{marginTop:20}}>{action}</div>}
+    </div>
+  );
+}
+
+function App(){
+  // Check session synchronously before first render
+  const _savedSession = Session.load();
+  const [view,setView]     = useState(_savedSession?.character ? "app" : "loading");
+  const [tab,setTab]       = useState("market");
+  const [selItem,setSelItem]   = useState(null);
+  const [chatItem,setChatItem] = useState(null);
+  const [subView,setSubView]   = useState("main");
+  const [session,setSession]   = useState(null);   // { character, user, token }
+
+  // ── Data states ──
+  const [itemListings,setItemListings]   = useState(null);  // null = loading
+  const [tcListings,setTcListings]       = useState(null);
+  const [charListings,setCharListings]   = useState(null);
+  const [myListings,setMyListings]       = useState([]);
+  const [conversations,setConversations] = useState(DEMO_MSGS);
+
+  /* ── On mount: check saved session ── */
+  useEffect(()=>{
+    const saved = Session.load();
+    if(saved?.character){
+      setSession(saved);
+      setView("app");
+    } else {
+      setView("login");
+    }
+  },[]);  // eslint-disable-line
+
+  /* ── Load market data (items, TC, chars) ── */
+  useEffect(()=>{
+    if(view!=="app") return;
+    loadAllData();
+  },[view]); // eslint-disable-line
+
+  async function loadAllData(){
+    // Usar fetch directo (sin Authorization header) para evitar CORS preflight en endpoints públicos
+    async function publicFetch(path){
+      const res = await fetch(API_URL + path, {headers:{"Accept":"application/json"}});
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
+
+    if(!API_URL){ 
+      setItemListings([]);
+      setTcListings([]);
+      setCharListings(DEMO_CHAR_LISTINGS);
+      return;
+    }
+
+    // Items — mostrar vacío si no hay publicaciones, nunca items de demo
+    try{ const d=await publicFetch("/api/listings?limit=50"); setItemListings(Array.isArray(d.listings)?d.listings:[]); }
+    catch(e){ console.warn("listings fetch failed:",e.message); setItemListings([]); }
+
+    // TC
+    try{ const d=await publicFetch("/api/tc?limit=20"); setTcListings(Array.isArray(d.listings)?d.listings:[]); }
+    catch(e){ console.warn("tc fetch failed:",e.message); setTcListings([]); }
+
+    // Bazar de chars (usa demo por ahora)
+    setCharListings(DEMO_CHAR_LISTINGS);
+  }
+
+  /* ── After user publishes something, reload ── */
+  function onPublished(){
+    setItemListings(null);
+    setTimeout(loadAllData, 500);
+  }
+
+  /* ── Auth handlers ── */
+  function handleLogin(character){
+    // Save session immediately — this persists for 30 days
+    const sessionData = { character, savedAt: Date.now() };
+    Session.save(sessionData);
+    setSession(sessionData);
+    setView("app");
+    // Register/login on backend in background (non-blocking)
+    if(API_URL){
+      const endpoint = character.hasAccount ? "/api/auth/login" : "/api/auth/register";
+      fetch(API_URL + endpoint, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({characterName: character.name})
+      }).then(r=>r.json()).then(data=>{
+        if(data.token){
+          const updated = {...sessionData, token: data.token};
+          Session.save(updated);
+          setSession(updated);
+        }
+      }).catch(e=>console.warn("Backend auth:", e.message));
+    }
+  }
+  function handleLogout(){
+    Session.clear();
+    setSession(null);
+    setItemListings(null);
+    setTcListings(null);
+    setCharListings(null);
+    setView("login");
+    setTab("market");
+    setSubView("main");
+  }
+
+  /* ── Navigation ── */
+  function goItem(item){ setSelItem(item); setSubView("detail"); }
+  function goChat(item){ setChatItem(item); setSubView("chat"); }
+  function goBack(){ setSubView("main"); setSelItem(null); setChatItem(null); }
+  function changeTab(t){ setTab(t); setSubView("main"); setChatItem(null); }
+
+  /* ── Screens ── */
+  if(view==="loading")  return <LoadingScreen message="Iniciando Tibia Market..."/>;
+  if(view==="login")    return <LoginScreen onLogin={handleLogin} onRegister={()=>setView("register")}/>;
+  if(view==="register") return <RegisterScreen onLogin={()=>setView("login")} onSuccess={handleLogin}/>;
+
+  function renderScreen(){
+    if(subView==="detail"&&selItem)
+      return <DetailScreen item={selItem} onBack={goBack} onChat={()=>goChat(selItem)}/>;
+    if(subView==="chat")
+      return <ChatScreen item={chatItem} onBack={goBack}/>;
+    if(subView==="tcmarket")
+      return <TCMarketScreen tcListings={tcListings||[]} loading={!tcListings} onBack={goBack} onSell={()=>setSubView("selltc")} onChat={(item)=>{setChatItem(item);setSubView("chat");}}/>;
+    if(subView==="selltc")
+      return <SellTCScreen onBack={()=>setSubView("tcmarket")} onPublished={onPublished}/>;
+    if(subView==="bazaar")
+      return <BazaarScreen charListings={charListings||[]} loading={!charListings} onBack={goBack} onSell={()=>setSubView("sellchar")} onChat={(item)=>{setChatItem(item);setSubView("chat");}}/>;
+    if(subView==="sellchar")
+      return <SellCharScreen onBack={()=>setSubView("bazaar")} onPublished={onPublished}/>;
+    if(tab==="market")
+      return <MarketScreen items={itemListings} loadingItems={!itemListings} onItem={goItem} onProfile={()=>changeTab("account")} onTCMarket={()=>setSubView("tcmarket")} onBazaar={()=>setSubView("bazaar")} session={session}/>;
+    if(tab==="sell")
+      return <SellScreen onPublished={onPublished}/>;
+    if(tab==="offers")
+      return <ChatScreen inbox conversations={conversations}/>;
+    if(tab==="account")
+      return <AccountScreen session={session} myListings={myListings} onBack={()=>changeTab("market")} onLogout={handleLogout}/>;
+    if(tab==="settings")
+      return <SettingsScreen/>;
+    return null;
+  }
+
+  return(
+    <div style={{background:C.bg0,height:"100vh",display:"flex",flexDirection:"column",fontFamily:"'Crimson Text',Georgia,serif",color:C.text,overflow:"hidden",position:"fixed",inset:0,maxWidth:430,margin:"0 auto"}}>
+      <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",minHeight:0}}>{renderScreen()}</div>
+      <BottomNav tab={tab} setTab={changeTab}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
