@@ -10,6 +10,7 @@ const crypto    = require('crypto');
 const fetch     = require('node-fetch');
 
 const app  = express();
+app.set('trust proxy', 1); // Railway pone un proxy delante; sin esto el límite se comparte entre todos los usuarios
 const PORT = process.env.PORT || 3000;
 const allowedOrigins = new Set(
   (process.env.CORS_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean)
@@ -64,16 +65,20 @@ async function getCharacter(name) {
   };
 }
 
-function validCharacterProof(proofToken, character) {
-  try {
-    const proof=jwt.verify(proofToken,process.env.JWT_SECRET);
-    return proof.scope==='character-ownership'&&
-      proof.nameLower===character.name.toLowerCase()&&
-      typeof proof.challenge==='string'&&
-      character.comment.includes(proof.challenge);
-  } catch {
-    return false;
-  }
+/* ── PIN de 4 dígitos (se guarda solo su hash scrypt) ── */
+const PIN_RE = /^\d{4}$/;
+const MAX_PIN_FAILS = 5;
+const PIN_LOCK_MS = 15*60*1000;
+function hashPin(pin) {
+  const salt = crypto.randomBytes(16);
+  return `${salt.toString('hex')}:${crypto.scryptSync(pin,salt,32).toString('hex')}`;
+}
+function checkPin(pin, stored) {
+  if (typeof stored!=='string' || !stored.includes(':')) return false;
+  const [salt,hash] = stored.split(':');
+  const expected = Buffer.from(hash,'hex');
+  const actual = crypto.scryptSync(pin,Buffer.from(salt,'hex'),expected.length);
+  return crypto.timingSafeEqual(expected,actual);
 }
 
 /* ── Auth middleware ── */
@@ -133,43 +138,17 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/auth/challenge', authLimiter, async (req, res) => {
-  const name=typeof req.body?.characterName==='string'?req.body.characterName.trim():'';
-  if (!name) return res.status(400).json({ error:'Falta characterName' });
-  try {
-    const character=await getCharacter(name);
-    if (!character) return res.status(404).json({ error:'Personaje no encontrado en Tibia' });
-    const challenge=`TIBIA-MARKET-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
-    const challengeToken=jwt.sign(
-      { scope:'character-ownership',nameLower:character.name.toLowerCase(),challenge },
-      process.env.JWT_SECRET,
-      { expiresIn:'30m' }
-    );
-    res.json({
-      character:{name:character.name,world:character.world,vocation:character.vocation,level:character.level},
-      challenge,
-      challengeToken,
-      expiresIn:1800,
-    });
-  } catch(e) {
-    console.error('POST /api/auth/challenge:',e.message);
-    res.status(e.message.startsWith('TibiaData')?502:500).json({ error:'No se pudo consultar el personaje. Intenta nuevamente en unos minutos.' });
-  }
-});
-
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const name = typeof req.body?.characterName==='string' ? req.body.characterName.trim() : '';
     if (!name) return res.status(400).json({ error:'Falta characterName' });
+    if (!PIN_RE.test(String(req.body?.pin ?? ''))) return res.status(400).json({ error:'El PIN debe tener exactamente 4 dígitos' });
     const char = await getCharacter(name);
     if (!char) return res.status(404).json({ error: 'Personaje no encontrado' });
-    if (!validCharacterProof(req.body?.proofToken,char)) {
-      return res.status(403).json({ error:'Verifica primero el control del personaje desde su comentario público en Tibia' });
-    }
     const dup = await query('SELECT id FROM characters WHERE name_lower=$1', [char.name.toLowerCase()]);
     if (dup.rows.length) return res.status(409).json({ error: 'Este personaje ya tiene cuenta' });
     const result = await transaction(async (c) => {
-      const { rows:[u] } = await c.query('INSERT INTO users DEFAULT VALUES RETURNING id');
+      const { rows:[u] } = await c.query('INSERT INTO users(pin_hash) VALUES($1) RETURNING id',[hashPin(String(req.body.pin))]);
       const { rows:[ch] } = await c.query(
         `INSERT INTO characters(user_id,name,name_lower,world,vocation,level,guild,is_primary)
          VALUES($1,$2,$3,$4,$5,$6,$7,TRUE) RETURNING id,name,world,vocation,level`,
@@ -193,18 +172,40 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const name = typeof req.body?.characterName==='string' ? req.body.characterName.trim() : '';
     if (!name) return res.status(400).json({ error:'Falta characterName' });
+    const pin = String(req.body?.pin ?? '');
+    if (!PIN_RE.test(pin)) return res.status(400).json({ error:'El PIN debe tener exactamente 4 dígitos' });
     const { rows } = await query(
-      `SELECT c.id AS cid,c.user_id,c.name,c.world,c.vocation,c.level,u.is_active
+      `SELECT c.id AS cid,c.user_id,c.name,c.world,c.vocation,c.level,u.is_active,
+              u.pin_hash,u.pin_failed_attempts,u.pin_locked_until
        FROM characters c JOIN users u ON u.id=c.user_id WHERE c.name_lower=$1`, [name.toLowerCase()]
     );
     if (!rows.length) return res.status(404).json({ error: 'No existe cuenta para este personaje' });
-    if (!rows[0].is_active) return res.status(403).json({ error: 'Cuenta suspendida' });
-    const char = await getCharacter(name);
-    if (!char) return res.status(404).json({ error: 'Personaje no encontrado en Tibia' });
-    if (!validCharacterProof(req.body?.proofToken,char)) {
-      return res.status(403).json({ error:'La prueba de control del personaje falta, expiró o ya no aparece en su comentario público' });
+    const acct = rows[0];
+    if (!acct.is_active) return res.status(403).json({ error: 'Cuenta suspendida' });
+    if (acct.pin_locked_until && new Date(acct.pin_locked_until)>new Date()) {
+      return res.status(429).json({ error:'Demasiados intentos fallidos. Intenta de nuevo en unos minutos.' });
     }
-    await query('UPDATE characters SET level=$1,last_sync=NOW() WHERE id=$2',[char.level,rows[0].cid]);
+    if (!checkPin(pin,acct.pin_hash)) {
+      const fails = (acct.pin_failed_attempts||0)+1;
+      const lock = fails>=MAX_PIN_FAILS;
+      await query(
+        'UPDATE users SET pin_failed_attempts=$1,pin_locked_until=$2 WHERE id=$3',
+        [lock?0:fails,lock?new Date(Date.now()+PIN_LOCK_MS):null,acct.user_id]
+      );
+      return res.status(401).json({
+        error: lock ? 'PIN incorrecto. Cuenta bloqueada 15 minutos.' : `PIN incorrecto. Te quedan ${MAX_PIN_FAILS-fails} intentos.`,
+      });
+    }
+    await query('UPDATE users SET pin_failed_attempts=0,pin_locked_until=NULL WHERE id=$1',[acct.user_id]);
+    // La sincronización del nivel es opcional: un fallo de TibiaData no impide entrar
+    let char = { name:acct.name, world:acct.world, vocation:acct.vocation, level:acct.level };
+    try {
+      const fresh = await getCharacter(name);
+      if (fresh) {
+        char = fresh;
+        await query('UPDATE characters SET level=$1,last_sync=NOW() WHERE id=$2',[fresh.level,acct.cid]);
+      }
+    } catch(e) { console.warn('login sync omitido:',e.message); }
     const hash = crypto.randomBytes(32).toString('hex');
     const token = jwt.sign({ userId:rows[0].user_id, characterId:rows[0].cid, tokenHash:hash }, process.env.JWT_SECRET, { expiresIn:'30d' });
     await query('INSERT INTO sessions(user_id,character_id,token_hash,expires_at) VALUES($1,$2,$3,$4)',
@@ -445,9 +446,6 @@ app.post('/api/characters', requireAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error:'Falta characterName' });
     const char=await getCharacter(name);
     if (!char) return res.status(404).json({ error:'Personaje no encontrado' });
-    if (!validCharacterProof(req.body.proofToken,char)) {
-      return res.status(403).json({ error:'Verifica primero el control del personaje desde su comentario público en Tibia' });
-    }
     const dup=await query('SELECT user_id FROM characters WHERE name_lower=$1',[char.name.toLowerCase()]);
     if (dup.rows.length) return res.status(409).json({ error:'Personaje ya registrado' });
     const { rows:[c] } = await query(
@@ -702,6 +700,9 @@ async function initDb(){
       version TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_failed_attempts INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_locked_until TIMESTAMPTZ',
   ];
   for (const statement of statements) {
     await query(statement);
